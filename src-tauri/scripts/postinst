@@ -1,0 +1,15 @@
+#!/bin/bash
+# Post-install script for Linux Market (.deb)
+# Configura el Firewall (UFW) para permitir tráfico en el puerto 3001
+
+if command -v ufw > /dev/null; then
+    echo "🔧 Configurando UFW para Linux Market..."
+    ufw allow 3001/tcp comment 'Linux Market API' || true
+    # Solo recargar si está activo para no provocar errores de código no cero
+    ufw reload > /dev/null 2>&1 || true
+    echo "✅ Regla de puerto 3001 añadida a UFW (si está activo)."
+else
+    echo "⚠️ UFW no detectado. Si utilizas otro firewall (nftables, iptables, etc.), permite el puerto 3001/TCP manualmente para que la red local funcione."
+fi
+
+exit 0

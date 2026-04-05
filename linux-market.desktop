@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Linux-Market POS
+Comment=Sistema de Punto de Venta para impresoras personalizadas
+Exec=/usr/bin/linux-market
+Icon=linux-market
+Terminal=false
+Categories=Office;Finance;
+Keywords=pos;ventas;punto de venta;impresoras;
+StartupNotify=true
+StartupWMClass=Linux-Market

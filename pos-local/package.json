@@ -1,0 +1,22 @@
+{
+  "name": "linux-market-pos-local",
+  "version": "1.0.0-beta",
+  "description": "Sistema POS Local para red LAN - Linux-Market",
+  "main": "backend/server.js",
+  "scripts": {
+    "start":      "node backend/server.js",
+    "dev":        "node --watch backend/server.js",
+    "frontend":   "cd frontend && npm run dev",
+    "build":      "cd frontend && npm run build",
+    "setup":      "node scripts/setup.js",
+    "test":       "node scripts/test-analytics.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.6.0",
+    "express":        "^4.21.1",
+    "cors":           "^2.8.5"
+  },
+  "keywords": ["pos", "linux", "sqlite", "express", "offline"],
+  "license": "MIT",
+  "engines": { "node": ">=18.0.0" }
+}

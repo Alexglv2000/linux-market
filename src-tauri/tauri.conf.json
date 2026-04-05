@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Linux-Market",
+  "version": "1.2.3",
+  "identifier": "com.linuxmarket.pos",
+  "build": {
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../out"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "/store/login",
+        "title": "Linux-Market POS",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 768,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "../dist-server-bundle/**/*",
+      "../node_modules/better-sqlite3/**/*",
+      "../node_modules/bindings/**/*",
+      "../node_modules/file-uri-to-path/**/*",
+      "../scripts/diagnostic.sh"
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["nodejs", "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37", "libgtk-3-0", "libayatana-appindicator3-1"]
+      },
+      "rpm": {
+        "depends": ["nodejs", "webkit2gtk4.0", "gtk3", "libayatana-appindicator3"]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}

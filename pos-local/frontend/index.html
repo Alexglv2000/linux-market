@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linux-Market POS v1.0 Beta</title>
+  <style>
+    :root {
+      --bg:       #0f0f13;
+      --surface:  #18181f;
+      --border:   #2a2a38;
+      --primary:  #6366f1;
+      --accent:   #8b5cf6;
+      --success:  #22c55e;
+      --warning:  #f59e0b;
+      --danger:   #ef4444;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --radius:   0.75rem;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Layout ── */
+    #app { display: flex; min-height: 100vh; }
+    #sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1rem 0; flex-shrink: 0; }
+    #main { flex: 1; overflow: auto; }
+
+    /* ── Sidebar ── */
+    .sidebar-logo { padding: 0.5rem 1.25rem 1.25rem; font-weight: 800; font-size: 1.1rem; color: var(--primary); border-bottom: 1px solid var(--border); margin-bottom: 0.5rem; }
+    .sidebar-logo span { font-size: 0.65rem; display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    .nav-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1.25rem; cursor: pointer; font-size: 0.88rem; color: var(--muted); transition: all .15s; border-left: 3px solid transparent; }
+    .nav-item:hover { color: var(--text); background: rgba(99,102,241,.08); }
+    .nav-item.active { color: var(--primary); background: rgba(99,102,241,.12); border-left-color: var(--primary); }
+    .nav-icon { font-size: 1rem; width: 1.2rem; text-align: center; }
+    .sidebar-bottom { margin-top: auto; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); }
+    #user-info { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+    #user-info strong { color: var(--text); display: block; }
+
+    /* ── Topbar ── */
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .topbar h1 { font-size: 1rem; font-weight: 600; }
+    .topbar-right { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: var(--muted); }
+
+    /* ── Contenido de páginas ── */
+    .page { display: none; padding: 1.5rem; }
+    .page.active { display: block; }
+
+    /* ── Cards ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+    .stat-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
+    .stat-value { font-size: 1.6rem; font-weight: 700; }
+    .stat-sub { font-size: 0.72rem; margin-top: 0.2rem; }
+    .up   { color: var(--success); }
+    .down { color: var(--danger); }
+
+    /* ── POS ── */
+    #pos-layout { display: grid; grid-template-columns: 1fr 340px; gap: 1rem; height: calc(100vh - 60px); }
+    #product-search-wrap { position: relative; margin-bottom: 1rem; }
+    #product-search { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 1rem; color: var(--text); font-size: 0.9rem; outline: none; }
+    #product-search:focus { border-color: var(--primary); }
+    #product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.6rem; overflow-y: auto; max-height: calc(100vh - 180px); }
+    .prod-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; cursor: pointer; transition: all .15s; user-select: none; }
+    .prod-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+    .prod-card:active { transform: scale(.97); }
+    .prod-name { font-size: 0.82rem; font-weight: 600; margin-bottom: 0.25rem; line-height: 1.3; }
+    .prod-price { font-size: 1rem; font-weight: 700; color: var(--primary); }
+    .prod-stock { font-size: 0.7rem; color: var(--muted); }
+    .prod-stock.low { color: var(--warning); }
+
+    /* ── Ticket lateral ── */
+    #ticket-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+    #ticket-header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center; }
+    #ticket-items { flex: 1; overflow-y: auto; padding: 0.5rem; }
+    .ticket-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.3rem; border-bottom: 1px solid var(--border); font-size: 0.83rem; }
+    .ticket-item-name { flex: 1; }
+    .ticket-qty { display: flex; align-items: center; gap: 0.3rem; }
+    .qty-btn { width: 22px; height: 22px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+    .ticket-subtotal { font-weight: 600; min-width: 60px; text-align: right; }
+    #ticket-footer { padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+    .ticket-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.3rem; }
+    .ticket-total { font-size: 1.1rem; font-weight: 800; color: var(--primary); }
+    #pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin: 0.75rem 0; }
+    .pay-btn { padding: 0.5rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 0.5rem; cursor: pointer; font-size: 0.8rem; transition: all .15s; }
+    .pay-btn.selected { border-color: var(--primary); background: rgba(99,102,241,.15); color: var(--primary); }
+    #cobrar-btn { width: 100%; padding: 0.75rem; background: var(--primary); color: white; border: none; border-radius: 0.5rem; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: opacity .15s; }
+    #cobrar-btn:hover { opacity: .88; }
+    #cobrar-btn:disabled { opacity: .4; cursor: default; }
+    #limpiar-btn { width: 100%; margin-top: 0.4rem; padding: 0.5rem; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 0.5rem; font-size: 0.8rem; cursor: pointer; }
+
+    /* ── Tabla ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.6rem 0.75rem; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+    .badge-green  { background: rgba(34,197,94,.15);  color: #4ade80; }
+    .badge-yellow { background: rgba(245,158,11,.15); color: #fbbf24; }
+    .badge-red    { background: rgba(239,68,68,.15);  color: #f87171; }
+    .badge-blue   { background: rgba(99,102,241,.15); color: #818cf8; }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 0.85rem; }
+    label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+    input, select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 0.75rem; color: var(--text); font-size: 0.88rem; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .btn { padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: opacity .15s; border: none; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-danger  { background: var(--danger);  color: white; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn:hover { opacity: .85; }
+
+    /* ── Modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .modal-overlay.hidden { display: none; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; min-width: 340px; max-width: 520px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 1.25rem; }
+    .modal-footer { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem; }
+
+    /* ── Login ── */
+    #login-screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
+    .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; width: 320px; }
+    .login-title { font-size: 1.4rem; font-weight: 800; color: var(--primary); margin-bottom: 0.25rem; }
+    .login-sub { font-size: 0.82rem; color: var(--muted); margin-bottom: 1.5rem; }
+    .login-error { font-size: 0.82rem; color: var(--danger); margin-top: 0.5rem; display: none; }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 300; display: flex; flex-direction: column; gap: 0.5rem; }
+    .toast-item { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.65rem 1rem; font-size: 0.85rem; box-shadow: 0 4px 24px rgba(0,0,0,.4); animation: slideIn .2s ease; max-width: 300px; }
+    .toast-item.success { border-color: var(--success); }
+    .toast-item.error   { border-color: var(--danger); }
+    @keyframes slideIn { from { transform: translateX(100%); opacity:0 } to { transform: translateX(0); opacity:1 } }
+
+    /* ── Charts ── */
+    .chart-wrap { position: relative; height: 180px; }
+    canvas { border-radius: 0.5rem; }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      #sidebar { display: none; }
+      #pos-layout { grid-template-columns: 1fr; }
+      #ticket-panel { height: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-title">Linux-Market POS</div>
+    <div class="login-sub">v1.0.0 Beta &mdash; Iniciar sesion</div>
+    <div class="form-group">
+      <label>Usuario</label>
+      <input type="text" id="login-user" value="admin" autocomplete="username" />
+    </div>
+    <div class="form-group">
+      <label>Contrasena</label>
+      <input type="password" id="login-pass" value="admin123" autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="login-err">Usuario o contrasena incorrectos</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-logo">
+      Linux-Market
+      <span>POS v1.0 Beta</span>
+    </div>
+    <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard',this)">
+      <span class="nav-icon">&#9642;</span> Dashboard
+    </div>
+    <div class="nav-item" data-page="pos" onclick="showPage('pos',this)">
+      <span class="nav-icon">&#9646;</span> Punto de Venta
+    </div>
+    <div class="nav-item" data-page="inventario" onclick="showPage('inventario',this)">
+      <span class="nav-icon">&#9643;</span> Inventario
+    </div>
+    <div class="nav-item" data-page="ventas" onclick="showPage('ventas',this)">
+      <span class="nav-icon">&#9645;</span> Ventas
+    </div>
+    <div class="nav-item" data-page="analytics" onclick="showPage('analytics',this)">
+      <span class="nav-icon">&#9651;</span> Analitica
+    </div>
+    <div class="nav-item" data-page="config" onclick="showPage('config',this)">
+      <span class="nav-icon">&#9647;</span> Configuracion
+    </div>
+    <div class="sidebar-bottom">
+      <div id="user-info"><strong id="user-name">Admin</strong><span id="user-role">admin_general</span></div>
+      <button class="btn btn-outline" style="width:100%;font-size:.78rem" onclick="doLogout()">Cerrar sesion</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div class="topbar">
+      <h1 id="page-title">Dashboard</h1>
+      <div class="topbar-right">
+        <span id="topbar-clock"></span>
+        <span id="topbar-store"></span>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-card"><div class="stat-label">Ventas hoy</div><div class="stat-value" id="st-hoy">$0</div><div class="stat-sub" id="st-var">-</div></div>
+        <div class="stat-card"><div class="stat-label">Transacciones</div><div class="stat-value" id="st-txn">0</div><div class="stat-sub muted">hoy</div></div>
+        <div class="stat-card"><div class="stat-label">Ventas del mes</div><div class="stat-value" id="st-mes">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Stock bajo</div><div class="stat-value down" id="st-stock">0</div><div class="stat-sub muted">productos</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:.75rem;font-size:.88rem">Ventas ultimos 30 dias</div>
+          <div class="chart-wrap"><canvas id="chart-ventas"></canvas></div>
+        </div>
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:.75rem;font-size:.88rem">Top productos del mes</div>
+          <div id="top-prods"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POS -->
+    <div class="page" id="page-pos">
+      <div id="pos-layout">
+        <div>
+          <div id="product-search-wrap">
+            <input id="product-search" type="text" placeholder="Buscar producto por nombre, SKU o codigo de barras..." oninput="filterProducts(this.value)" />
+          </div>
+          <div id="product-grid"></div>
+        </div>
+        <div id="ticket-panel">
+          <div id="ticket-header">
+            <span>Ticket</span>
+            <span id="ticket-count" style="font-size:.8rem;color:var(--muted)">0 items</span>
+          </div>
+          <div id="ticket-items"></div>
+          <div id="ticket-footer">
+            <div class="ticket-row"><span>Subtotal</span><span id="t-subtotal">$0.00</span></div>
+            <div class="ticket-row"><span>IVA (16%)</span><span id="t-iva">$0.00</span></div>
+            <div class="ticket-row ticket-total"><span>Total</span><span id="t-total">$0.00</span></div>
+            <div id="pay-methods">
+              <button class="pay-btn selected" data-method="efectivo" onclick="selectMethod(this)">Efectivo</button>
+              <button class="pay-btn" data-method="tarjeta" onclick="selectMethod(this)">Tarjeta</button>
+              <button class="pay-btn" data-method="transferencia" onclick="selectMethod(this)">Transfer.</button>
+              <button class="pay-btn" data-method="qr" onclick="selectMethod(this)">QR / CoDi</button>
+            </div>
+            <div class="form-group">
+              <label>Monto recibido</label>
+              <input type="number" id="monto-pagado" placeholder="0.00" step="0.01" oninput="calcCambio()" />
+            </div>
+            <div class="ticket-row"><span>Cambio</span><span id="t-cambio" style="color:var(--success)">$0.00</span></div>
+            <button id="cobrar-btn" onclick="cobrar()" disabled>Cobrar</button>
+            <button id="limpiar-btn" onclick="limpiarTicket()">Limpiar ticket</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INVENTARIO -->
+    <div class="page" id="page-inventario">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <input type="text" id="inv-search" placeholder="Buscar producto..." style="max-width:280px" oninput="loadInventario(this.value)" />
+        <button class="btn btn-primary" onclick="openProductModal()">+ Agregar producto</button>
+      </div>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead><tr><th>SKU</th><th>Nombre</th><th>Categoria</th><th>Precio</th><th>Costo</th><th>Stock</th><th>Min.</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="inv-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- VENTAS -->
+    <div class="page" id="page-ventas">
+      <div style="display:flex;gap:.75rem;margin-bottom:1rem;align-items:center">
+        <input type="date" id="v-desde" style="max-width:150px" />
+        <input type="date" id="v-hasta" style="max-width:150px" />
+        <button class="btn btn-outline" onclick="loadVentas()">Filtrar</button>
+      </div>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Folio</th><th>Fecha</th><th>Cajero</th><th>Items</th><th>Total</th><th>Metodo</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="v-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ANALITICA -->
+    <div class="page" id="page-analytics">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:.75rem">Prediccion proximos 7 dias</div>
+          <div class="chart-wrap"><canvas id="chart-pred"></canvas></div>
+        </div>
+        <div class="card">
+          <div style="font-weight:600;margin-bottom:.75rem">Indice por dia de la semana</div>
+          <div class="chart-wrap"><canvas id="chart-dias"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:.75rem">Recomendaciones automaticas</div>
+        <div id="recomendaciones"></div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <div style="font-weight:600;margin-bottom:.75rem">Estadisticas del modelo</div>
+        <div id="stats-modelo" style="display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;font-size:.85rem"></div>
+      </div>
+    </div>
+
+    <!-- CONFIGURACION -->
+    <div class="page" id="page-config">
+      <div class="card" style="max-width:480px">
+        <div style="font-weight:700;margin-bottom:1.25rem">Configuracion del negocio</div>
+        <div class="form-group"><label>Nombre del negocio</label><input id="cfg-nombre" type="text" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Moneda</label><select id="cfg-moneda"><option>MXN</option><option>USD</option><option>EUR</option></select></div>
+          <div class="form-group"><label>IVA (%)</label><input id="cfg-iva" type="number" /></div>
+        </div>
+        <div class="form-group"><label>Texto pie de ticket</label><input id="cfg-ticket" type="text" /></div>
+        <div style="display:flex;gap:.75rem;margin-top:1rem">
+          <button class="btn btn-primary" onclick="saveConfig()">Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRODUCTO -->
+<div class="modal-overlay hidden" id="modal-producto">
+  <div class="modal">
+    <div class="modal-title" id="modal-prod-title">Agregar producto</div>
+    <input type="hidden" id="prod-id" />
+    <div class="form-row">
+      <div class="form-group"><label>SKU *</label><input id="prod-sku" type="text" /></div>
+      <div class="form-group"><label>Codigo de barras</label><input id="prod-barras" type="text" /></div>
+    </div>
+    <div class="form-group"><label>Nombre *</label><input id="prod-nombre" type="text" /></div>
+    <div class="form-group"><label>Descripcion</label><input id="prod-desc" type="text" /></div>
+    <div class="form-row">
+      <div class="form-group"><label>Precio de venta *</label><input id="prod-precio" type="number" step="0.01" /></div>
+      <div class="form-group"><label>Costo</label><input id="prod-costo" type="number" step="0.01" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Stock inicial</label><input id="prod-stock" type="number" /></div>
+      <div class="form-group"><label>Stock minimo (alerta)</label><input id="prod-min" type="number" value="5" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Categoria</label><select id="prod-cat"></select></div>
+      <div class="form-group"><label>Unidad</label><select id="prod-unidad"><option>pza</option><option>kg</option><option>lt</option><option>caja</option><option>par</option><option>serv</option></select></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-producto')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveProduct()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE VENTA -->
+<div class="modal-overlay hidden" id="modal-venta">
+  <div class="modal">
+    <div class="modal-title">Detalle de venta</div>
+    <div id="modal-venta-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-venta')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+const API = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+  ? 'http://localhost:3001/api'
+  : `http://${window.location.hostname}:3001/api`
+
+let TOKEN = null
+let USER  = null
+let cart  = []
+let products = []
+let payMethod = 'efectivo'
+let IVA_PCT   = 0.16
+let MONEDA    = 'MXN'
+
+// ── Utilidades ─────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id)
+const fmt = n => new Intl.NumberFormat('es-MX', { style: 'currency', currency: MONEDA || 'MXN' }).format(n || 0)
+const fmtDate = s => s ? new Date(s).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '-'
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div')
+  el.className = `toast-item ${type}`
+  el.textContent = msg
+  $('toast').appendChild(el)
+  setTimeout(() => el.remove(), 3500)
+}
+
+async function api(path, opts = {}) {
+  try {
+    const res = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
+      ...opts,
+      ...(opts.body ? { body: JSON.stringify(opts.body) } : {})
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Error del servidor')
+    return data
+  } catch (e) {
+    if (e.message.includes('Failed to fetch')) throw new Error('No se puede conectar al servidor. Verifica que el backend este corriendo.')
+    throw e
+  }
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const username = $('login-user').value.trim()
+  const password = $('login-pass').value
+  $('login-err').style.display = 'none'
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: { username, password } })
+    TOKEN = data.token
+    USER  = data.user
+    $('login-screen').style.display = 'none'
+    $('app').style.display = 'flex'
+    $('user-name').textContent = USER.nombre
+    $('user-role').textContent = USER.rol.replace('_', ' ')
+    initApp()
+  } catch (e) {
+    $('login-err').textContent = e.message
+    $('login-err').style.display = 'block'
+  }
+}
+$('login-pass').addEventListener('keydown', e => e.key === 'Enter' && doLogin())
+
+function doLogout() {
+  TOKEN = null; USER = null; cart = []
+  $('app').style.display = 'none'
+  $('login-screen').style.display = 'flex'
+}
+
+// ── Navegacion ──────────────────────────────────────────────────────────
+const PAGE_TITLES = { dashboard: 'Dashboard', pos: 'Punto de Venta', inventario: 'Inventario', ventas: 'Ventas', analytics: 'Analitica', config: 'Configuracion' }
+
+function showPage(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
+  $('page-' + page).classList.add('active')
+  el.classList.add('active')
+  $('page-title').textContent = PAGE_TITLES[page]
+  if (page === 'pos')        loadProducts()
+  if (page === 'inventario') loadInventario()
+  if (page === 'ventas')     { setDefaultDates(); loadVentas() }
+  if (page === 'analytics')  loadAnalytics()
+  if (page === 'config')     loadConfig()
+}
+
+function initApp() {
+  // Reloj
+  setInterval(() => { $('topbar-clock').textContent = new Date().toLocaleTimeString('es-MX') }, 1000)
+  loadDashboard()
+  loadConfig().then(() => loadProducts())
+}
+
+// ── Dashboard ───────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const d = await api('/analytics/dashboard')
+    $('st-hoy').textContent   = fmt(d.ventasHoy.total)
+    $('st-txn').textContent   = d.ventasHoy.count
+    $('st-mes').textContent   = fmt(d.ventasMes.total)
+    $('st-stock').textContent = d.stockBajo.count
+    const vp = parseFloat(d.variacion)
+    $('st-var').className     = 'stat-sub ' + (vp >= 0 ? 'up' : 'down')
+    $('st-var').textContent   = (vp >= 0 ? '+' : '') + vp + '% vs ayer'
+
+    // Top productos
+    const tp = $('top-prods')
+    tp.innerHTML = d.topProds.length ? d.topProds.map(p =>
+      `<div style="display:flex;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.82rem">
+        <span>${p.nombre}</span><span style="color:var(--primary)">${fmt(p.total)}</span>
+      </div>`).join('') : '<p style="color:var(--muted);font-size:.82rem">Sin ventas aun este mes</p>'
+
+    // Grafica ventas
+    drawBar('chart-ventas', d.ventasDia.map(v => v.fecha.slice(5)), d.ventasDia.map(v => v.total), '#6366f1')
+  } catch (e) { toast('Error cargando dashboard: ' + e.message, 'error') }
+}
+
+// ── POS / Productos ─────────────────────────────────────────────────────
+async function loadProducts() {
+  try {
+    products = await api('/productos')
+    renderProducts(products)
+  } catch (e) { toast(e.message, 'error') }
+}
+
+function renderProducts(prods) {
+  const grid = $('product-grid')
+  grid.innerHTML = prods.length ? prods.map(p => `
+    <div class="prod-card" onclick="addToCart('${p.id}')">
+      <div class="prod-name">${p.nombre}</div>
+      <div class="prod-price">${fmt(p.precio)}</div>
+      <div class="prod-stock ${p.stock <= p.stock_minimo ? 'low' : ''}">Stock: ${p.stock} ${p.unidad}</div>
+    </div>`).join('') : '<p style="color:var(--muted);padding:1rem;font-size:.85rem">No se encontraron productos</p>'
+}
+
+function filterProducts(q) {
+  const lq = q.toLowerCase()
+  renderProducts(products.filter(p =>
+    p.nombre.toLowerCase().includes(lq) || p.sku.toLowerCase().includes(lq) || p.codigo_barras === q
+  ))
+}
+
+function addToCart(id) {
+  const prod = products.find(p => p.id === id)
+  if (!prod) return
+  if (prod.stock <= 0) { toast('Sin stock disponible', 'error'); return }
+  const ex = cart.find(c => c.id === id)
+  if (ex) { if (ex.qty >= prod.stock) { toast('Stock maximo alcanzado', 'error'); return }; ex.qty++ }
+  else cart.push({ ...prod, qty: 1 })
+  renderCart()
+}
+
+function changeQty(id, delta) {
+  const idx = cart.findIndex(c => c.id === id)
+  if (idx < 0) return
+  cart[idx].qty += delta
+  if (cart[idx].qty <= 0) cart.splice(idx, 1)
+  renderCart()
+}
+
+function renderCart() {
+  const items = $('ticket-items')
+  items.innerHTML = cart.length ? cart.map(c => `
+    <div class="ticket-item">
+      <span class="ticket-item-name">${c.nombre}</span>
+      <div class="ticket-qty">
+        <button class="qty-btn" onclick="changeQty('${c.id}',-1)">-</button>
+        <span>${c.qty}</span>
+        <button class="qty-btn" onclick="changeQty('${c.id}',1)">+</button>
+      </div>
+      <span class="ticket-subtotal">${fmt(c.precio * c.qty)}</span>
+    </div>`).join('') : '<p style="color:var(--muted);padding:1rem;font-size:.82rem;text-align:center">Ticket vacio</p>'
+
+  $('ticket-count').textContent = cart.reduce((a, c) => a + c.qty, 0) + ' items'
+  const sub = cart.reduce((a, c) => a + c.precio * c.qty, 0)
+  const iva = sub * IVA_PCT
+  const tot = sub + iva
+  $('t-subtotal').textContent = fmt(sub)
+  $('t-iva').textContent = fmt(iva)
+  $('t-total').textContent = fmt(tot)
+  $('monto-pagado').value = tot.toFixed(2)
+  $('cobrar-btn').disabled = cart.length === 0
+  calcCambio()
+}
+
+function calcCambio() {
+  const tot   = cart.reduce((a, c) => a + c.precio * c.qty, 0) * (1 + IVA_PCT)
+  const pagado = parseFloat($('monto-pagado').value) || 0
+  $('t-cambio').textContent = fmt(Math.max(0, pagado - tot))
+}
+
+function selectMethod(btn) {
+  document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'))
+  btn.classList.add('selected')
+  payMethod = btn.dataset.method
+}
+
+async function cobrar() {
+  if (!cart.length) return
+  const tot    = cart.reduce((a, c) => a + c.precio * c.qty, 0) * (1 + IVA_PCT)
+  const pagado = parseFloat($('monto-pagado').value) || tot
+  try {
+    const res = await api('/ventas', {
+      method: 'POST',
+      body: {
+        items: cart.map(c => ({ producto_id: c.id, cantidad: c.qty })),
+        metodo_pago: payMethod,
+        monto_pagado: pagado
+      }
+    })
+    toast(`Venta ${res.folio} registrada. Cambio: ${fmt(res.cambio)}`)
+    limpiarTicket()
+    loadProducts()
+  } catch (e) { toast(e.message, 'error') }
+}
+
+function limpiarTicket() {
+  cart = []
+  renderCart()
+  $('monto-pagado').value = ''
+}
+
+// ── Inventario ──────────────────────────────────────────────────────────
+async function loadInventario(q = '') {
+  try {
+    const prods = await api('/productos' + (q ? `?q=${encodeURIComponent(q)}` : ''))
+    const tbody = $('inv-table')
+    const cats  = await api('/categorias')
+    tbody.innerHTML = prods.map(p => {
+      const status = p.stock <= 0 ? '<span class="badge badge-red">Sin stock</span>'
+        : p.stock <= p.stock_minimo ? '<span class="badge badge-yellow">Stock bajo</span>'
+        : '<span class="badge badge-green">OK</span>'
+      return `<tr>
+        <td><code style="font-size:.78rem">${p.sku}</code></td>
+        <td>${p.nombre}</td>
+        <td><span class="badge badge-blue">${p.categoria_nombre || '-'}</span></td>
+        <td>${fmt(p.precio)}</td>
+        <td style="color:var(--muted)">${fmt(p.costo)}</td>
+        <td><strong>${p.stock}</strong> ${p.unidad}</td>
+        <td style="color:var(--muted)">${p.stock_minimo}</td>
+        <td>${status}</td>
+        <td><button class="btn btn-outline" style="padding:.25rem .6rem;font-size:.75rem" onclick="editProduct(${JSON.stringify(p).split('"').join("'")})">Editar</button></td>
+      </tr>`
+    }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:2rem">No hay productos. Agrega uno con el boton de arriba.</td></tr>'
+  } catch (e) { toast(e.message, 'error') }
+}
+
+async function openProductModal(prod = null) {
+  const cats = await api('/categorias')
+  $('prod-cat').innerHTML = cats.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')
+  if (prod) {
+    $('modal-prod-title').textContent = 'Editar producto'
+    $('prod-id').value     = prod.id
+    $('prod-sku').value    = prod.sku
+    $('prod-barras').value = prod.codigo_barras || ''
+    $('prod-nombre').value = prod.nombre
+    $('prod-desc').value   = prod.descripcion || ''
+    $('prod-precio').value = prod.precio
+    $('prod-costo').value  = prod.costo
+    $('prod-stock').value  = prod.stock
+    $('prod-min').value    = prod.stock_minimo
+    $('prod-cat').value    = prod.categoria_id || ''
+    $('prod-unidad').value = prod.unidad || 'pza'
+  } else {
+    $('modal-prod-title').textContent = 'Agregar producto'
+    ;['prod-id','prod-sku','prod-barras','prod-nombre','prod-desc','prod-precio','prod-costo'].forEach(id => $(id).value = '')
+    $('prod-stock').value = '0'; $('prod-min').value = '5'
+  }
+  $('modal-producto').classList.remove('hidden')
+}
+
+function editProduct(p) { openProductModal(p) }
+
+async function saveProduct() {
+  const id = $('prod-id').value
+  const body = {
+    sku: $('prod-sku').value, codigo_barras: $('prod-barras').value,
+    nombre: $('prod-nombre').value, descripcion: $('prod-desc').value,
+    precio: parseFloat($('prod-precio').value), costo: parseFloat($('prod-costo').value),
+    stock: parseInt($('prod-stock').value), stock_minimo: parseInt($('prod-min').value),
+    categoria_id: parseInt($('prod-cat').value), unidad: $('prod-unidad').value
+  }
+  try {
+    if (id) await api('/productos/' + id, { method: 'PUT', body })
+    else    await api('/productos', { method: 'POST', body })
+    toast(id ? 'Producto actualizado' : 'Producto agregado')
+    closeModal('modal-producto')
+    loadInventario()
+  } catch (e) { toast(e.message, 'error') }
+}
+
+// ── Ventas ──────────────────────────────────────────────────────────────
+function setDefaultDates() {
+  const hoy  = new Date().toISOString().slice(0, 10)
+  const mes  = hoy.slice(0, 8) + '01'
+  $('v-desde').value = mes
+  $('v-hasta').value = hoy
+}
+
+async function loadVentas() {
+  try {
+    const params = new URLSearchParams({ desde: $('v-desde').value, hasta: $('v-hasta').value + 'T23:59:59', limite: 100 })
+    const ventas = await api('/ventas?' + params)
+    const tbody  = $('v-table')
+    tbody.innerHTML = ventas.map(v => `
+      <tr>
+        <td><code style="font-size:.78rem">${v.folio}</code></td>
+        <td>${fmtDate(v.creado_en)}</td>
+        <td>${v.cajero_nombre}</td>
+        <td style="color:var(--muted)">-</td>
+        <td>${fmt(v.total)}</td>
+        <td><span class="badge badge-blue">${v.metodo_pago}</span></td>
+        <td><span class="badge ${v.estado==='completada'?'badge-green':'badge-red'}">${v.estado}</span></td>
+        <td><button class="btn btn-outline" style="padding:.25rem .6rem;font-size:.75rem" onclick="verVenta('${v.id}')">Ver</button></td>
+      </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:2rem">Sin ventas en el periodo seleccionado</td></tr>'
+  } catch (e) { toast(e.message, 'error') }
+}
+
+async function verVenta(id) {
+  try {
+    const v = await api('/ventas/' + id)
+    $('modal-venta-content').innerHTML = `
+      <div style="margin-bottom:.75rem"><strong>Folio:</strong> ${v.folio}</div>
+      <div style="margin-bottom:.75rem"><strong>Fecha:</strong> ${fmtDate(v.creado_en)}</div>
+      <div style="margin-bottom:.75rem"><strong>Metodo de pago:</strong> ${v.metodo_pago}</div>
+      <table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead>
+        <tbody>${v.items.map(i => `<tr><td>${i.nombre}</td><td>${i.cantidad}</td><td>${fmt(i.precio_unit)}</td><td>${fmt(i.subtotal)}</td></tr>`).join('')}</tbody>
+      </table>
+      <div style="margin-top:.75rem;text-align:right">
+        <div>Subtotal: ${fmt(v.subtotal)}</div>
+        <div>IVA: ${fmt(v.impuesto)}</div>
+        <strong>Total: ${fmt(v.total)}</strong>
+      </div>`
+    $('modal-venta').classList.remove('hidden')
+  } catch (e) { toast(e.message, 'error') }
+}
+
+// ── Analytics ───────────────────────────────────────────────────────────
+async function loadAnalytics() {
+  try {
+    const data = await api('/analytics/prediccion?dias=7')
+    if (data.error) { $('recomendaciones').innerHTML = `<p style="color:var(--muted)">${data.error}</p>`; return }
+
+    // Grafica prediccion
+    const labels = data.predicciones.map(p => p.dia.slice(0,3))
+    const vals   = data.predicciones.map(p => p.prediccion)
+    drawBar('chart-pred', labels, vals, '#8b5cf6')
+
+    // Grafica indices por dia
+    const dias = data.indicesPorDia
+    drawBar('chart-dias', dias.map(d => d.dia.slice(0,3)), dias.map(d => d.indice), '#6366f1')
+
+    // Recomendaciones
+    $('recomendaciones').innerHTML = data.recomendaciones.length
+      ? data.recomendaciones.map(r => `
+          <div style="padding:.65rem .9rem;border-radius:.5rem;margin-bottom:.5rem;border-left:3px solid ${r.tipo==='positivo'?'var(--success)':r.tipo==='alerta'?'var(--warning)':'var(--primary)'};background:rgba(255,255,255,.03);font-size:.85rem">
+            ${r.mensaje}
+          </div>`).join('')
+      : '<p style="color:var(--muted);font-size:.85rem">Registra mas ventas para obtener recomendaciones automaticas.</p>'
+
+    // Stats modelo
+    const s = data.estadisticas
+    $('stats-modelo').innerHTML = [
+      { label: 'Media diaria', val: fmt(s.media) },
+      { label: 'Desviacion estandar', val: fmt(s.desviacion) },
+      { label: 'R² del modelo', val: (data.tendencia.r2 * 100).toFixed(1) + '%' },
+      { label: 'Tendencia diaria', val: (data.tendencia.pendiente >= 0 ? '+' : '') + fmt(data.tendencia.pendiente) },
+    ].map(st => `<div style="background:var(--bg);border-radius:.5rem;padding:.65rem"><div style="color:var(--muted);font-size:.72rem;margin-bottom:.2rem">${st.label}</div><div style="font-weight:700">${st.val}</div></div>`).join('')
+  } catch (e) { toast(e.message, 'error') }
+}
+
+// ── Configuracion ────────────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const cfg = await api('/config')
+    if ($('cfg-nombre')) $('cfg-nombre').value = cfg.nombre_negocio || ''
+    if ($('cfg-iva'))    $('cfg-iva').value    = cfg.impuesto_pct || '16'
+    if ($('cfg-ticket')) $('cfg-ticket').value = cfg.ticket_pie || ''
+    if ($('cfg-moneda')) $('cfg-moneda').value = cfg.moneda || 'MXN'
+    $('topbar-store').textContent = cfg.nombre_negocio || 'Linux-Market POS'
+    IVA_PCT = parseFloat(cfg.impuesto_pct || '16') / 100
+    MONEDA  = cfg.moneda || 'MXN'
+  } catch { /* servidor no disponible, usar defaults */ }
+}
+
+async function saveConfig() {
+  try {
+    await api('/config', { method: 'PUT', body: {
+      nombre_negocio: $('cfg-nombre').value,
+      impuesto_pct:   $('cfg-iva').value,
+      ticket_pie:     $('cfg-ticket').value,
+      moneda:         $('cfg-moneda').value
+    }})
+    toast('Configuracion guardada')
+    loadConfig()
+  } catch (e) { toast(e.message, 'error') }
+}
+
+// ── Modales ──────────────────────────────────────────────────────────────
+function closeModal(id) { $(id).classList.add('hidden') }
+
+// ── Charts (canvas minimal sin libs externas) ────────────────────────────
+function drawBar(canvasId, labels, values, color) {
+  const canvas = $(canvasId)
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  const W = canvas.parentElement.clientWidth || 400
+  const H = 170
+  canvas.width  = W
+  canvas.height = H
+  ctx.clearRect(0, 0, W, H)
+
+  const max    = Math.max(...values, 1)
+  const n      = labels.length
+  const padL   = 40, padR = 10, padT = 10, padB = 30
+  const bw     = Math.floor((W - padL - padR) / n) - 4
+  const chartH = H - padT - padB
+
+  // Ejes
+  ctx.strokeStyle = '#2a2a38'; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB); ctx.stroke()
+
+  // Lineas guia
+  ctx.strokeStyle = '#1f1f2e'; ctx.setLineDash([3, 3])
+  for (let i = 1; i <= 4; i++) {
+    const y = padT + chartH - (chartH * i / 4)
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke()
+    ctx.fillStyle = '#475569'; ctx.font = '9px system-ui'
+    ctx.textAlign = 'right'
+    ctx.fillText(Math.round(max * i / 4), padL - 3, y + 3)
+  }
+  ctx.setLineDash([])
+
+  // Barras
+  labels.forEach((lbl, i) => {
+    const x   = padL + i * (bw + 4) + 2
+    const bh  = Math.max(2, (values[i] / max) * chartH)
+    const y   = padT + chartH - bh
+
+    const grad = ctx.createLinearGradient(0, y, 0, y + bh)
+    grad.addColorStop(0, color)
+    grad.addColorStop(1, color + '55')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.roundRect(x, y, bw, bh, [3, 3, 0, 0])
+    ctx.fill()
+
+    ctx.fillStyle = '#64748b'; ctx.font = '9px system-ui'; ctx.textAlign = 'center'
+    ctx.fillText(lbl, x + bw / 2, H - padB + 12)
+  })
+}
+
+window.addEventListener('resize', () => {
+  // Redibujar charts si estan visibles
+  setTimeout(() => {
+    if ($('page-dashboard').classList.contains('active')) loadDashboard()
+    if ($('page-analytics').classList.contains('active')) loadAnalytics()
+  }, 100)
+})
+</script>
+</body>
+</html>
