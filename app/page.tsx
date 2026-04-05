@@ -517,13 +517,13 @@ export default function PublicityLandingPage() {
                       <div className="flex items-start gap-3">
                         <span className="text-cyan-500 mt-1">$</span>
                         <code className="text-blue-300 break-all leading-relaxed whitespace-pre-wrap">
-                          curl -sSL https://raw.githubusercontent.com/aleglugov/linux-market/main/pos-local/installer/install.sh | sudo bash
+                          curl -sSL https://raw.githubusercontent.com/Alexglv2000/linux-market/main/pos-local/installer/install.sh | sudo bash
                         </code>
                       </div>
                     </div>
                     <button 
                       onClick={() => {
-                        navigator.clipboard.writeText('curl -sSL https://raw.githubusercontent.com/aleglugov/linux-market/main/pos-local/installer/install.sh | sudo bash');
+                        navigator.clipboard.writeText('curl -sSL https://raw.githubusercontent.com/Alexglv2000/linux-market/main/pos-local/installer/install.sh | sudo bash');
                         // Toast success could go here
                       }}
                       className="absolute top-14 right-4 p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-cyan-500/20 transition-all group/copy"
@@ -560,7 +560,7 @@ export default function PublicityLandingPage() {
                 <div className="relative group">
                   <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-4/5 h-8 bg-red-600/10 blur-[40px] rounded-full opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
                   <Link
-                    href="/downloads/debian/linux-market.deb"
+                    href="https://github.com/Alexglv2000/linux-market/releases/latest/download/linux-market.deb"
                     className="flex items-center justify-between glass-card rounded-3xl p-5 border border-white/5 group hover:border-red-500/40 hover:shadow-[0_15px_35px_rgba(239,68,68,0.15)] transition-all duration-500 relative z-10 overflow-hidden"
                     download
                   >
@@ -591,7 +591,7 @@ export default function PublicityLandingPage() {
                 <div className="relative group">
                   <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-4/5 h-8 bg-violet-600/20 blur-[40px] rounded-full opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
                   <Link
-                    href="/downloads/fedora/linux-market.rpm"
+                    href="https://github.com/Alexglv2000/linux-market/releases/latest/download/linux-market.rpm"
                     className="flex items-center justify-between glass-card rounded-3xl p-5 border border-white/5 group hover:border-violet-500/40 hover:shadow-[0_15px_35px_rgba(139,92,246,0.15)] transition-all duration-500 relative z-10 overflow-hidden"
                     download
                   >
@@ -622,7 +622,7 @@ export default function PublicityLandingPage() {
                 <div className="relative group">
                   <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-4/5 h-8 bg-violet-600/20 blur-[40px] rounded-full opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
                   <Link
-                    href="/downloads/arch/linux-market.tar.gz"
+                    href="https://github.com/Alexglv2000/linux-market/releases/latest/download/linux-market.tar.gz"
                     className="flex items-center justify-between glass-card rounded-3xl p-5 border border-white/5 group hover:border-violet-500/40 hover:shadow-[0_15px_35px_rgba(139,92,246,0.15)] transition-all duration-500 relative z-10 overflow-hidden"
                     download
                   >
