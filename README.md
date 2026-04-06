@@ -1,4 +1,5 @@
 # Linux-Market POS
+**Autor:** Alexis Gabriel Lugo Villeda
 
 Sistema de Punto de Venta moderno y minimalista para la comunidad de usuarios de Linux.
 
@@ -15,6 +16,35 @@ Sistema de Punto de Venta moderno y minimalista para la comunidad de usuarios de
 - 🔄 **Transferencias**: Movimiento de inventario entre sucursales
 - 📈 **Reportes**: Sistema completo de reportes y auditoría
 - 🔐 **Seguridad**: Autenticación robusta con bcrypt
+
+## 📸 Galería del Sistema
+
+<div align="center">
+  <table>
+    <tr>
+      <td width="50%">
+        <img src="public/screenshots/dashboard.png" width="100%" alt="Dashboard"/>
+        <p align="center"><b>Dashboard de Estadísticas</b></p>
+      </td>
+      <td width="50%">
+        <img src="public/screenshots/pos.png" width="100%" alt="POS System"/>
+        <p align="center"><b>Punto de Venta (POS)</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%">
+        <img src="public/screenshots/inventory.png" width="100%" alt="Inventario"/>
+        <p align="center"><b>Gestión de Inventario</b></p>
+      </td>
+      <td width="50%">
+        <img src="public/screenshots/superadmin.png" width="100%" alt="Panel Admin"/>
+        <p align="center"><b>Panel de Administración</b></p>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
 
 ## Modos de Uso
 

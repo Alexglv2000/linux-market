@@ -32,4 +32,3 @@ dist/
 build/
 pos-local/installer/linux-market-pos/
 
-app/page.tsx # Marketing page
