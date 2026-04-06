@@ -296,8 +296,8 @@ export default function PublicityLandingPage() {
 
             {/* GitHub Code Button (Desktop) */}
             <div className="hidden lg:flex items-center gap-3">
-              <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" className="text-xs font-black px-6 py-3 text-white/60 hover:text-white hover:bg-white/5 border border-white/10 rounded-full transition-all uppercase flex items-center gap-2">
+              <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_20px_rgba(139,92,246,0.3)]">
+                <Button variant="ghost" className="btn-galaxy-inner text-xs font-black px-6 py-3 text-white/90 hover:text-white border-none rounded-full transition-all uppercase flex items-center gap-2">
                   <Github className="w-4 h-4" />
                   VER CÓDIGO
                 </Button>
@@ -437,8 +437,8 @@ export default function PublicityLandingPage() {
                     DESPLIEGUE GRATUITO
                   </Button>
                 </a>
-                <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer">
-                  <Button variant="outline" className="btn-pill border-white/20 bg-white/5 text-white font-black text-base h-15 px-10 hover:bg-white/10 hover:border-white/40 uppercase tracking-widest transition-all hover:scale-105 active:scale-95 backdrop-blur-sm flex items-center gap-3">
+                <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_25px_rgba(139,92,246,0.4)]">
+                  <Button variant="outline" className="btn-galaxy-inner border-none text-white font-black text-base h-15 px-10 uppercase tracking-widest transition-all rounded-full flex items-center gap-3">
                     <Github className="w-6 h-6" />
                     VER CÓDIGO
                   </Button>
