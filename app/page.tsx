@@ -49,11 +49,47 @@ export default function PublicityLandingPage() {
   // Navigation state management
   const [scrolled, setScrolled] = useState(false) // Tracks if user has scrolled down
   const [navVisible, setNavVisible] = useState(true) // Controls navbar visibility (auto-hide)
-  const [lastScrollY, setLastScrollY] = useState(0) // Stores previous scroll position for comparison
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false) // State for mobile drawer
   const [isTauri, setIsTauri] = useState(false) // Detects if running as native Tauri app
   const [selectedImg, setSelectedImg] = useState<number | null>(null) // Lightbox: index of the active image
+
+  // STATS STATE: Real-time data from GitHub API
+  const [githubStats, setGithubStats] = useState({ stars: 0, forks: 0, views: 0 })
+  const [downloadStats, setDownloadStats] = useState<Record<string, number>>({})
+
   const router = useRouter() // Next.js router instance
+
+  // EFFECT: Fetch Real-time stats from GitHub
+  // Author: Alexis Gabriel Lugo Villeda
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        // Fetch Repository Stats (Stars/Forks)
+        const repoRes = await fetch('https://api.github.com/repos/Alexglv2000/linux-market')
+        const repoData = await repoRes.json()
+        setGithubStats({
+          stars: repoData.stargazers_count || 0,
+          forks: repoData.forks_count || 0,
+          views: repoData.subscribers_count || 0
+        })
+
+        // Fetch Release Assets (Download counts)
+        const releaseRes = await fetch('https://api.github.com/repos/Alexglv2000/linux-market/releases/latest')
+        const releaseData = await releaseRes.json()
+
+        const counts: Record<string, number> = {}
+        releaseData.assets?.forEach((asset: any) => {
+          if (asset.name.includes('.deb')) counts.deb = asset.download_count
+          if (asset.name.includes('.rpm')) counts.rpm = asset.download_count
+          if (asset.name.includes('.tar.gz')) counts.tar = asset.download_count
+        })
+        setDownloadStats(counts)
+      } catch (err) {
+        console.error('Failed to fetch GitHub stats:', err)
+      }
+    }
+    fetchStats()
+  }, []) // Run once on client mount
 
   // Effect to detect the Tauri environment on mount
   useEffect(() => {
@@ -201,7 +237,7 @@ export default function PublicityLandingPage() {
       {/* Navbar Section - Sticky at the top with smart transition effects */}
       <nav className={`fixed top-0 w-full z-50 transition-all duration-500 transform ${navVisible ? 'translate-y-0' : '-translate-y-full'} ${scrolled ? 'bg-background/80 backdrop-blur-xl border-b border-white/5 py-4' : 'bg-transparent py-6'}`}>
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          
+
           {/* Logo and Branding Group */}
           <div className="flex items-center gap-3 group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <div className="relative">
@@ -383,21 +419,22 @@ export default function PublicityLandingPage() {
               </div>
 
               <div className="flex flex-wrap gap-8 pt-4 border-t border-white/5">
+                {/* Real-time GitHub Stats displayed in the Hero Section */}
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Cifrado</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-cyan-500/80">GitHub Stars</p>
+                  <p className="text-base font-black font-mono text-white animate-pulse">{githubStats.stars}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-violet-400/80">Forks</p>
+                  <p className="text-base font-black font-mono text-white">{githubStats.forks}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-emerald-400/80">Vistas</p>
+                  <p className="text-base font-black font-mono text-white">{githubStats.views}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Seguro</p>
                   <p className="text-base font-black font-mono text-blue-400">AES-256</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Motor</p>
-                  <p className="text-base font-black font-mono text-blue-400">Rust / Tauri</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">BD</p>
-                  <p className="text-base font-black font-mono text-blue-400">SQLite Local</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Sync</p>
-                  <p className="text-base font-black font-mono text-blue-400">SSE Real-time</p>
                 </div>
               </div>
             </div>
@@ -565,15 +602,15 @@ export default function PublicityLandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Gallery Items with Professional Hover Effects and Lightbox Trigger */}
             {galleryImages.map((img, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 onClick={() => setSelectedImg(i)} // Open Lightbox at this index
                 className="group relative rounded-3xl overflow-hidden bg-black/40 border border-white/5 shadow-2xl transition-all duration-700 hover:-translate-y-2 hover:shadow-cyan-500/10 cursor-pointer"
               >
                 {/* Image display with scale and grayscale transitions */}
-                <img 
-                  src={img.src} 
-                  alt={img.title} 
+                <img
+                  src={img.src}
+                  alt={img.title}
                   className="w-full aspect-video object-cover transition-transform duration-1000 group-hover:scale-110 grayscale-[20%] group-hover:grayscale-0"
                 />
                 {/* Overlay gradient for readability */}
@@ -595,7 +632,7 @@ export default function PublicityLandingPage() {
           <div className="glass-card rounded-[40px] p-1 border border-white/5 bg-white/5 relative overflow-hidden group shadow-2xl">
             {/* Top Glow bar */}
             <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
-            
+
             <div className="bg-black/60 backdrop-blur-3xl rounded-[38px] p-8 md:p-12">
               <div className="flex flex-col md:flex-row items-center gap-10">
                 <div className="space-y-6 flex-1 text-center md:text-left">
@@ -628,7 +665,7 @@ export default function PublicityLandingPage() {
                         </code>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => {
                         navigator.clipboard.writeText('curl -sSL https://raw.githubusercontent.com/Alexglv2000/linux-market/main/pos-local/installer/install.sh | sudo bash');
                         // Toast success could go here
@@ -682,9 +719,13 @@ export default function PublicityLandingPage() {
                       </div>
                       <div>
                         <h3 className="font-black text-2xl tracking-tight text-white group-hover:text-red-400 transition-colors">Debian / Ubuntu</h3>
-                        <div className="flex items-center gap-3 mt-1">
+                        <div className="flex flex-wrap items-center gap-3 mt-1">
                           <span className="px-3 py-0.5 rounded-full border border-red-500/20 bg-red-500/5 text-red-400 font-black tracking-widest text-[9px]">.DEB ARCHIVE</span>
                           <span className="text-[9px] font-black tracking-[0.2em] text-red-500/60 uppercase">Nativo APT</span>
+                          {/* Live Download count Badge */}
+                          <span className="text-[9px] font-bold text-white/50 bg-white/5 px-2 py-0.5 rounded-md border border-white/10 uppercase">
+                            {downloadStats.deb || 0} DESC.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -713,9 +754,13 @@ export default function PublicityLandingPage() {
                       </div>
                       <div>
                         <h3 className="font-black text-2xl tracking-tight text-white group-hover:text-violet-400 transition-colors">Fedora / RHEL</h3>
-                        <div className="flex items-center gap-3 mt-1">
+                        <div className="flex flex-wrap items-center gap-3 mt-1">
                           <span className="px-3 py-0.5 rounded-full border border-violet-500/20 bg-violet-500/5 text-violet-400 font-black tracking-widest text-[9px]">.RPM ARCHIVE</span>
                           <span className="text-[9px] font-black tracking-[0.2em] text-violet-500/60 uppercase">Nativo DNF</span>
+                          {/* Live Download count Badge */}
+                          <span className="text-[9px] font-bold text-white/50 bg-white/5 px-2 py-0.5 rounded-md border border-white/10 uppercase">
+                            {downloadStats.rpm || 0} DESC.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -744,9 +789,13 @@ export default function PublicityLandingPage() {
                       </div>
                       <div>
                         <h3 className="font-black text-2xl tracking-tight text-white group-hover:text-violet-400 transition-colors">Arch / Genérico</h3>
-                        <div className="flex items-center gap-3 mt-1">
+                        <div className="flex flex-wrap items-center gap-3 mt-1">
                           <span className="px-3 py-0.5 rounded-full border border-violet-500/20 bg-violet-500/5 text-violet-400 font-black tracking-widest text-[9px]">.TAR.GZ BUNDLE</span>
                           <span className="text-[9px] font-black tracking-[0.2em] text-violet-500/60 uppercase">Nativo PACMAN</span>
+                          {/* Live Download count Badge */}
+                          <span className="text-[9px] font-bold text-white/50 bg-white/5 px-2 py-0.5 rounded-md border border-white/10 uppercase">
+                            {downloadStats.tar || 0} DESC.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -945,15 +994,15 @@ export default function PublicityLandingPage() {
       {selectedImg !== null && (
         <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
           {/* Close trigger: clicking the top-right X or background area */}
-          <button 
+          <button
             onClick={() => setSelectedImg(null)}
             className="absolute top-10 right-10 p-4 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all z-[110]"
           >
             <X className="w-8 h-8" />
           </button>
-          
+
           {/* Previous image arrow button - Cyclical navigation */}
-          <button 
+          <button
             onClick={() => setSelectedImg((selectedImg - 1 + galleryImages.length) % galleryImages.length)}
             className="absolute left-6 md:left-12 p-5 rounded-full bg-white/5 border border-white/10 text-white hover:bg-cyan-500/20 hover:border-cyan-500/30 transition-all z-[110] active:scale-95 group"
           >
@@ -962,9 +1011,9 @@ export default function PublicityLandingPage() {
 
           {/* Current expanded image with zoom-in entry animation */}
           <div className="relative max-w-6xl w-full aspect-video rounded-[40px] overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.2)] border border-white/10 animate-in zoom-in duration-500">
-            <img 
-              src={galleryImages[selectedImg].src} 
-              alt={galleryImages[selectedImg].title} 
+            <img
+              src={galleryImages[selectedImg].src}
+              alt={galleryImages[selectedImg].title}
               className="w-full h-full object-cover"
             />
             {/* Image info overlay at the bottom of the lightbox */}
@@ -975,7 +1024,7 @@ export default function PublicityLandingPage() {
           </div>
 
           {/* Next image arrow button - Cyclical navigation */}
-          <button 
+          <button
             onClick={() => setSelectedImg((selectedImg + 1) % galleryImages.length)}
             className="absolute right-6 md:right-12 p-5 rounded-full bg-white/5 border border-white/10 text-white hover:bg-cyan-500/20 hover:border-cyan-500/30 transition-all z-[110] active:scale-95 group"
           >
@@ -985,8 +1034,8 @@ export default function PublicityLandingPage() {
           {/* Visual progress indicator (dots) for the gallery images */}
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-3">
             {galleryImages.map((_, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className={`h-1.5 rounded-full transition-all duration-500 ${selectedImg === i ? 'w-12 bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'w-3 bg-white/20'}`}
               />
             ))}
