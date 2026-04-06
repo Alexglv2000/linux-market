@@ -105,21 +105,27 @@ export default function PublicityLandingPage() {
         let debCount = 0, rpmCount = 0, tarCount = 0
         if (releasesData && releasesData.length > 0) {
           const latestRelease = releasesData[0]
+          
+          // Encontrar la fecha más reciente de entre todos los archivos subidos
+          let latestAssetUpdate = new Date(latestRelease.published_at)
+          
           latestRelease.assets.forEach((asset: any) => {
             if (asset.name.endsWith('.deb')) debCount += asset.download_count
             if (asset.name.endsWith('.rpm')) rpmCount += asset.download_count
             if (asset.name.endsWith('.tar.gz')) tarCount += asset.download_count
+            
+            const assetUpdate = new Date(asset.updated_at)
+            if (assetUpdate > latestAssetUpdate) latestAssetUpdate = assetUpdate
           })
 
-          const pubDate = new Date(latestRelease.published_at)
           setGhStats(prev => ({
             ...prev,
             stars: repoData.stargazers_count || 0,
             forks: repoData.forks_count || 0,
             watchers: repoData.subscribers_count || 0,
             version: latestRelease.tag_name || '1.2.3',
-            publishedAt: pubDate,
-            lastUpdate: pubDate.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }),
+            publishedAt: latestAssetUpdate,
+            lastUpdate: latestAssetUpdate.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }),
             downloads: { deb: debCount, rpm: rpmCount, tar: tarCount }
           }))
         }
