@@ -471,7 +471,7 @@ export default function PublicityLandingPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                  ACTUALIZADO: <span className="text-blue-400">{ghStats.lastUpdate}</span>
+                  ACTUALIZADO: <span className="text-blue-400">6 ABR 2026</span>
                 </div>
               </div>
             </div>
@@ -769,6 +769,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
+                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
                 </div>
 
                 {/* Fedora Button */}
@@ -803,6 +804,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
+                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
                 </div>
 
                 {/* Arch Button */}
@@ -837,6 +839,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
+                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
                 </div>
               </div>
             </div>
@@ -1013,7 +1016,7 @@ export default function PublicityLandingPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-400" />
-                <span className="text-[9px] font-black tracking-widest text-white/20 uppercase">v1.2.0 Stable</span>
+                <span className="text-[9px] font-black tracking-widest text-white/20 uppercase">v1.2.3 Stable</span>
               </div>
             </div>
           </div>
