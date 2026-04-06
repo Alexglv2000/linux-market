@@ -802,7 +802,9 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
+                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                    v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
+                  </p>
                 </div>
 
                 {/* Fedora Button */}
@@ -837,7 +839,9 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
+                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                    v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
+                  </p>
                 </div>
 
                 {/* Arch Button */}
@@ -872,7 +876,9 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className="mt-2 text-[9px] text-center font-mono text-zinc-500 uppercase tracking-widest">v1.2.3 • 6 Abr 2026</p>
+                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                    v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
+                  </p>
                 </div>
               </div>
             </div>
