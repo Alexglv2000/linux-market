@@ -298,8 +298,10 @@ export default function PublicityLandingPage() {
             <div className="hidden lg:flex items-center gap-3">
               <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_20px_rgba(139,92,246,0.3)]">
                 <Button variant="ghost" className="btn-galaxy-inner text-xs font-black px-6 py-3 text-white/90 hover:text-white border-none rounded-full transition-all uppercase flex items-center gap-2">
-                  <Github className="w-4 h-4" />
-                  VER CÓDIGO
+                  <div className="flex items-center gap-2 rainbow-text-hover">
+                    <Github className="w-4 h-4" />
+                    VER CÓDIGO
+                  </div>
                 </Button>
               </a>
               <a href="#descargas">
@@ -439,8 +441,10 @@ export default function PublicityLandingPage() {
                 </a>
                 <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_25px_rgba(139,92,246,0.4)]">
                   <Button variant="outline" className="btn-galaxy-inner border-none text-white font-black text-base h-15 px-10 uppercase tracking-widest transition-all rounded-full flex items-center gap-3">
-                    <Github className="w-6 h-6" />
-                    VER CÓDIGO
+                    <div className="flex items-center gap-3 rainbow-text-hover">
+                      <Github className="w-6 h-6" />
+                      VER CÓDIGO
+                    </div>
                   </Button>
                 </a>
               </div>

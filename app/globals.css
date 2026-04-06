@@ -603,10 +603,9 @@ body.tauri-app aside.fixed {
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
-    transparent 280deg,
-    #3b82f6 300deg,
-    #a855f7 330deg,
-    #ec4899 350deg,
+    transparent 320deg,
+    #3b82f6 340deg,
+    #a855f7 355deg,
     transparent 360deg
   );
   border-radius: inherit;
@@ -615,10 +614,31 @@ body.tauri-app aside.fixed {
   padding: 1px;
 }
 
+/* Hover: Detener animación y mostrar arcoíris completo */
+.btn-galaxy:hover::after {
+  animation: none;
+  background: linear-gradient(
+    to right,
+    #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff
+  );
+}
+
+/* Hover: Texto e Icono arcoíris */
+.btn-galaxy:hover .rainbow-text-hover {
+  background: linear-gradient(
+    to right,
+    #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
 /* Máscara interna para el rayo de borde */
 .btn-galaxy-inner {
   position: relative;
-  background: #000000;
+  background-color: #000000 !important;
   border-radius: inherit;
   width: 100%;
   height: 100%;
@@ -627,7 +647,7 @@ body.tauri-app aside.fixed {
   align-items: center;
   justify-content: center;
   z-index: 11;
-  background: radial-gradient(circle at center, #16213e 0%, #000000 100%);
+  background: radial-gradient(circle at center, #16213e 0%, #000000 100%) !important;
 }
 
 @keyframes galaxy-move {
