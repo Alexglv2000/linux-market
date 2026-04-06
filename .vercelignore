@@ -1,0 +1,22 @@
+# Local binaries
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+*.db
+
+# Dev artifacts
+node_modules
+.next
+.vercel
+dist
+dist-server-bundle
+out
+linux-market-portable
+src-tauri/target
+
+# Scripts and private data
+.env*
+scripts/
+upload-release.js
+linuxmarket.db

@@ -1,0 +1,48 @@
+name: linux-market-pos
+version: '1.2.3'
+summary: POS free para Linux, robusto y moderno.
+description: |
+  Linux Market es un sistema punto de venta moderno construido con Rust y React.
+  Diseñado para terminales táctiles, quioscos y periféricos industriales.
+  
+  Características:
+  - Gestión de inventario en tiempo real.
+  - Modo Kiosko de auto-pago.
+  - Sincronización de red local.
+  - Soporte nativo para impresoras térmicas.
+
+base: core22
+confinement: strict
+grade: stable
+
+parts:
+  linux-market:
+    plugin: rust
+    source: .
+    build-packages:
+      - libgtk-3-dev
+      - libwebkit2gtk-4.0-dev
+      - libayatana-appindicator3-dev
+      - librsvg2-dev
+      - libssl-dev
+    stage-packages:
+      - libgtk-3-0
+      - libwebkit2gtk-4.0-37
+      - libayatana-appindicator3-1
+      - librsvg2-2
+    # build commands are usually handled by the plugin, but we might need 
+    # extra steps for Tauri if the plugin doesn't know about the frontend build.
+
+apps:
+  linux-market:
+    command: bin/linux-market
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - wayland
+      - x11
+      - desktop
+      - hardware-observe
+      - serial-port
+      - raw-usb # Necesario para impresoras térmicas directas

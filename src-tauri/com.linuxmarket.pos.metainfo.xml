@@ -41,5 +41,31 @@
     </screenshot>
   </screenshots>
   <url type="homepage">https://linux-market.vercel.app/</url>
+  <url type="bugtracker">https://github.com/Alexglv2000/linux-market/issues</url>
+  <url type="vcs-browser">https://github.com/Alexglv2000/linux-market</url>
+  <url type="help">https://linux-market.vercel.app/docs</url>
+
+  <categories>
+    <category>Office</category>
+    <category>Finance</category>
+    <category>Utility</category>
+  </categories>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="1.2.3" date="2026-04-06">
+      <description>
+        <p>Versión de producción estable con soporte para periféricos industriales.</p>
+        <ul>
+          <li>Integración nativa con impresoras térmicas (ESC/POS).</li>
+          <li>Filtros anti-humanos para escáneres de códigos de barras.</li>
+          <li>Sincronización en red local en tiempo real.</li>
+          <li>Nueva estética Cyber-Dark en toda la interfaz.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
   <developer_name>Alexis Gabriel Lugo Villeda</developer_name>
 </component>
