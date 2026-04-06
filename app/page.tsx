@@ -34,7 +34,9 @@ import {
   ShoppingCart,
   Package,
   Settings,
-  ClipboardList
+  ClipboardList,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 // Core Link component
 import Link from 'next/link'
@@ -44,47 +46,54 @@ import { AIAdvisor } from '@/components/ai-advisor'
 import { FloatingOrbs } from '@/components/premium-ui'
 
 export default function PublicityLandingPage() {
-  const [scrolled, setScrolled] = useState(false)
-  const [navVisible, setNavVisible] = useState(true)
-  const [lastScrollY, setLastScrollY] = useState(0)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [isTauri, setIsTauri] = useState(false)
-  const router = useRouter()
+  // Navigation state management
+  const [scrolled, setScrolled] = useState(false) // Tracks if user has scrolled down
+  const [navVisible, setNavVisible] = useState(true) // Controls navbar visibility (auto-hide)
+  const [lastScrollY, setLastScrollY] = useState(0) // Stores previous scroll position for comparison
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false) // State for mobile drawer
+  const [isTauri, setIsTauri] = useState(false) // Detects if running as native Tauri app
+  const [selectedImg, setSelectedImg] = useState<number | null>(null) // Lightbox: index of the active image
+  const router = useRouter() // Next.js router instance
 
+  // Effect to detect the Tauri environment on mount
   useEffect(() => {
+    // Check if the global __TAURI_INTERNALS__ object exists
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      setIsTauri(true)
+      setIsTauri(true) // Set native mode flag
     }
-  }, [])
+  }, []) // Run once on client mount
 
+  // Effect to handle scroll events for navbar logic
   useEffect(() => {
     const handleScroll = () => {
-      const currentScrollY = window.scrollY
+      const currentScrollY = window.scrollY // Current vertical scroll position
 
-      // Smart Hide Logic
+      // Smart Hide Logic: Hide navbar when scrolling down, show when scrolling up
       if (currentScrollY > lastScrollY && currentScrollY > 100) {
-        setNavVisible(false)
+        setNavVisible(false) // User is scrolling down, hide nabvar
       } else {
-        setNavVisible(true)
+        setNavVisible(true) // User is scrolling up, show navbar
       }
 
-      setScrolled(currentScrollY > 20)
-      setLastScrollY(currentScrollY)
+      setScrolled(currentScrollY > 20) // Set scrolled state (for styling)
+      setLastScrollY(currentScrollY) // Update last position
     }
 
+    // Add high-performance passive scroll listener
     window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [lastScrollY])
+    return () => window.removeEventListener('scroll', handleScroll) // Cleanup
+  }, [lastScrollY]) // Depend on lastScrollY
 
-  // Mobile menu scroll lock
+  // Block scroll on body when mobile menu is active
   useEffect(() => {
     if (mobileMenuOpen) {
-      document.body.style.overflow = 'hidden'
+      document.body.style.overflow = 'hidden' // Disable scrolling
     } else {
-      document.body.style.overflow = 'unset'
+      document.body.style.overflow = 'unset' // Enable scrolling
     }
-  }, [mobileMenuOpen])
+  }, [mobileMenuOpen]) // Run when mobileMenuOpen changes
 
+  // Core system features data array
   const features = [
     {
       title: 'Hardware Lock',
@@ -144,6 +153,18 @@ export default function PublicityLandingPage() {
     }
   ]
 
+  // Data for the 'Vistazo al Sistema' gallery section
+  // Author: Alexis Gabriel Lugo Villeda
+  const galleryImages = [
+    { src: '/screenshots/dashboard.png', title: 'Dashboard Principal', desc: 'Panel de estadísticas', icon: LayoutDashboard },
+    { src: '/screenshots/pos.png', title: 'Punto de Venta', desc: 'Interfaz de cajero', icon: ShoppingCart },
+    { src: '/screenshots/inventory.png', title: 'Inventario', desc: 'Control de productos', icon: Package },
+    { src: '/screenshots/superadmin.png', title: 'Super Admin', desc: 'Gestión global', icon: ShieldCheck },
+    { src: '/screenshots/transfers.png', title: 'Transferencias', desc: 'Logística interna', icon: ArrowRight },
+    { src: '/screenshots/audit.png', title: 'Auditoría', desc: 'Registro de seguridad', icon: ClipboardList }
+  ]
+
+  // Linux distribution logos and names for the marquee
   const distros = [
     { name: '.deb', dist: 'Ubuntu' },
     { name: 'Debian', dist: '.rpm' },
@@ -154,36 +175,44 @@ export default function PublicityLandingPage() {
     { name: 'EndeavourOS', dist: '.deb' }
   ]
 
+  // Branding component - Debian SVG Logo
   const DebianLogo = () => (
     <img src="/mascots/debian_final.svg" className="w-10 h-10 object-contain" alt="Debian" />
   )
 
+  // Branding component - Fedora PNG Logo
   const FedoraLogo = () => (
     <img src="/fedora.png" className="w-10 h-10 object-contain" alt="Fedora" />
   )
 
+  // Branding component - Arch SVG Logo
   const ArchLogo = () => (
     <img src="/mascots/arch_final.svg" className="w-10 h-10 object-contain" alt="Arch" />
   )
 
   return (
+    // Main container with background color and responsive overflow handling
     <div className="min-h-screen text-foreground overflow-x-hidden relative bg-background">
 
-
+      {/* Decorative Orbs - Premium UI element for visual depth */}
       <FloatingOrbs color="violet" />
 
 
-      {/* Navbar */}
+      {/* Navbar Section - Sticky at the top with smart transition effects */}
       <nav className={`fixed top-0 w-full z-50 transition-all duration-500 transform ${navVisible ? 'translate-y-0' : '-translate-y-full'} ${scrolled ? 'bg-background/80 backdrop-blur-xl border-b border-white/5 py-4' : 'bg-transparent py-6'}`}>
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
+          
+          {/* Logo and Branding Group */}
           <div className="flex items-center gap-3 group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <div className="relative">
+              {/* Outer Glow Effect on Logo */}
               <div className="absolute -inset-1 rounded-xl bg-violet-500/30 blur-md group-hover:bg-violet-500/50 transition-all" />
               <div className="relative w-10 h-10 flex items-center justify-center">
                 <img src="/iconolinuxmarket.png" alt="Linux Market Logo" className="w-full h-full object-contain drop-shadow-lg" />
               </div>
             </div>
             <div>
+              {/* Main Title and Author Brand */}
               <p className="font-black text-lg tracking-tight text-white leading-none uppercase">LINUX MARKET</p>
               <p className="text-[9px] font-mono tracking-[0.4em] text-violet-400/70 uppercase">Nativo · Seguro · Libre</p>
             </div>
@@ -534,21 +563,22 @@ export default function PublicityLandingPage() {
 
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              { src: '/screenshots/dashboard.png', title: 'Dashboard Principal', desc: 'Panel de estadísticas' },
-              { src: '/screenshots/pos.png', title: 'Punto de Venta', desc: 'Interfaz de cajero' },
-              { src: '/screenshots/inventory.png', title: 'Inventario', desc: 'Control de productos' },
-              { src: '/screenshots/superadmin.png', title: 'Super Admin', desc: 'Gestión global' },
-              { src: '/screenshots/transfers.png', title: 'Transferencias', desc: 'Logística interna' },
-              { src: '/screenshots/audit.png', title: 'Auditoría', desc: 'Registro de seguridad' }
-            ].map((img, i) => (
-              <div key={i} className="group relative rounded-3xl overflow-hidden bg-black/40 border border-white/5 shadow-2xl transition-all duration-700 hover:-translate-y-2 hover:shadow-cyan-500/10">
+            {/* Gallery Items with Professional Hover Effects and Lightbox Trigger */}
+            {galleryImages.map((img, i) => (
+              <div 
+                key={i} 
+                onClick={() => setSelectedImg(i)} // Open Lightbox at this index
+                className="group relative rounded-3xl overflow-hidden bg-black/40 border border-white/5 shadow-2xl transition-all duration-700 hover:-translate-y-2 hover:shadow-cyan-500/10 cursor-pointer"
+              >
+                {/* Image display with scale and grayscale transitions */}
                 <img 
                   src={img.src} 
                   alt={img.title} 
                   className="w-full aspect-video object-cover transition-transform duration-1000 group-hover:scale-110 grayscale-[20%] group-hover:grayscale-0"
                 />
+                {/* Overlay gradient for readability */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10 opacity-70" />
+                {/* Info and icon displayed on hover/grid */}
                 <div className="absolute bottom-0 inset-x-0 p-6 z-20">
                   <h3 className="text-lg font-bold text-white mb-1">{img.title}</h3>
                   <p className="text-[10px] text-white/40 font-mono tracking-widest uppercase">{img.desc}</p>
@@ -906,6 +936,64 @@ export default function PublicityLandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* 
+          LIGHTBOX / FULL-SCREEN GALLERY NAVIGATION
+          Integrated UI to view screenshots in full scale with navigation.
+          Author: Alexis Gabriel Lugo Villeda
+      */}
+      {selectedImg !== null && (
+        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+          {/* Close trigger: clicking the top-right X or background area */}
+          <button 
+            onClick={() => setSelectedImg(null)}
+            className="absolute top-10 right-10 p-4 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all z-[110]"
+          >
+            <X className="w-8 h-8" />
+          </button>
+          
+          {/* Previous image arrow button - Cyclical navigation */}
+          <button 
+            onClick={() => setSelectedImg((selectedImg - 1 + galleryImages.length) % galleryImages.length)}
+            className="absolute left-6 md:left-12 p-5 rounded-full bg-white/5 border border-white/10 text-white hover:bg-cyan-500/20 hover:border-cyan-500/30 transition-all z-[110] active:scale-95 group"
+          >
+            <ChevronLeft className="w-10 h-10 group-hover:-translate-x-1 transition-transform" />
+          </button>
+
+          {/* Current expanded image with zoom-in entry animation */}
+          <div className="relative max-w-6xl w-full aspect-video rounded-[40px] overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.2)] border border-white/10 animate-in zoom-in duration-500">
+            <img 
+              src={galleryImages[selectedImg].src} 
+              alt={galleryImages[selectedImg].title} 
+              className="w-full h-full object-cover"
+            />
+            {/* Image info overlay at the bottom of the lightbox */}
+            <div className="absolute bottom-0 inset-x-0 p-12 bg-gradient-to-t from-black via-black/40 to-transparent">
+              <h3 className="text-4xl font-black text-white mb-2">{galleryImages[selectedImg].title}</h3>
+              <p className="text-cyan-400 font-mono tracking-widest uppercase text-xs">{galleryImages[selectedImg].desc}</p>
+            </div>
+          </div>
+
+          {/* Next image arrow button - Cyclical navigation */}
+          <button 
+            onClick={() => setSelectedImg((selectedImg + 1) % galleryImages.length)}
+            className="absolute right-6 md:right-12 p-5 rounded-full bg-white/5 border border-white/10 text-white hover:bg-cyan-500/20 hover:border-cyan-500/30 transition-all z-[110] active:scale-95 group"
+          >
+            <ChevronRight className="w-10 h-10 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          {/* Visual progress indicator (dots) for the gallery images */}
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-3">
+            {galleryImages.map((_, i) => (
+              <div 
+                key={i} 
+                className={`h-1.5 rounded-full transition-all duration-500 ${selectedImg === i ? 'w-12 bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'w-3 bg-white/20'}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <AIAdvisor />
     </div>
   )
