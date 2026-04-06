@@ -388,10 +388,24 @@ Si tienes problemas o preguntas:
 2. Verifica los logs del navegador (F12 → Console)
 3. Asegúrate de tener las versiones correctas de Node.js
 
+## Comunidad y Contribuciones
+
+Linux-Market POS es un proyecto de código abierto que busca empoderar a los negocios con tecnología nativa y segura. 
+
+¡Queremos que hagas tuya esta herramienta! Puedes:
+- **Forkear el repositorio**: Crea tu propia versión personalizada.
+- **Reportar errores**: Ayúdanos a mejorar abriendo un [Issue](https://github.com/Alexglv2000/linux-market/issues).
+- **Enviar mejoras**: Los Pull Requests son bienvenidos.
+
+### Cómo crear tu propia versión
+1. **Personaliza el Branding**: Cambia los logos en `/public` y los colores en `app/globals.css`.
+2. **Modifica la Lógica**: Explora `src/pos-app` para ajustar el comportamiento del POS a tus necesidades.
+3. **Compila**: Usa los comandos de `pnpm tauri:build` para generar tus propios instaladores .deb, .rpm o .exe.
+
 ## Licencia
 
-Este proyecto es privado y de uso exclusivo para Linux-Market.
+Este proyecto está bajo la Licencia **MIT**. Eres libre de usarlo, modificarlo y distribuirlo, tanto para fines personales como comerciales.
 
 ---
 
-**Linux-Market** - Tecnologia accesible y moderna para la comunidad de usuarios de Linux
+**Linux-Market** - Tecnología accesible, moderna y libre para la comunidad mundial.

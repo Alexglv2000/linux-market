@@ -312,12 +312,17 @@ export default function PublicityLandingPage() {
                 <span className="text-violet-400 font-bold ml-2 text-balance">Despliegue Profesional.</span>
               </p>
 
-              <div className="flex flex-wrap gap-4 pt-2">
+              <div className="flex flex-wrap gap-4 pt-2 relative z-20">
                 <a href="#descargas">
                   <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white font-black text-base h-15 px-10 shadow-2xl shadow-violet-500/40 border border-violet-400/30 cyber-glow uppercase tracking-widest transition-all hover:scale-105 active:scale-95">
                     DESPLIEGUE GRATUITO
                   </Button>
                 </a>
+                <Link href="/store/login">
+                  <Button variant="outline" className="btn-pill border-violet-500/30 bg-violet-500/5 text-violet-300 font-black text-base h-15 px-10 hover:bg-violet-500/10 hover:border-violet-500/50 uppercase tracking-widest transition-all hover:scale-105 active:scale-95 backdrop-blur-sm">
+                    VER PROYECTO
+                  </Button>
+                </Link>
               </div>
 
               <div className="flex flex-wrap gap-8 pt-4 border-t border-white/5">
