@@ -88,7 +88,7 @@ export default function SuperAdminLogin() {
         <div className="absolute -bottom-[20%] left-1/4 w-[1100px] h-[1100px] bg-red-900/15 blur-[300px] animate-pulse-slow" style={{ animationDelay: '4s' }} />
       </div>
 
-      <FloatingOrbs color="orange" />
+      <FloatingOrbs color="red" />
       <AIAdvisor />
 
       <div className="w-full max-w-md relative z-10">

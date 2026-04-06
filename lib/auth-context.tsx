@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { type User } from './db'
 import { useRouter } from 'next/navigation'
-import { authApi, setStoredToken, clearStoredToken } from './api'
+import { authApi, setStoredToken, clearStoredToken, getStoredToken } from './api'
 
 interface AuthContextType {
   user: User | null
@@ -23,7 +23,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const storedUser = localStorage.getItem('linuxmarket_user')
-      if (storedUser) {
+      const token = getStoredToken()
+
+      if (storedUser && token) {
         const parsed = JSON.parse(storedUser)
         // Validate the stored object has minimum required fields
         if (parsed?.id && parsed?.username && parsed?.role) {
@@ -31,10 +33,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           localStorage.removeItem('linuxmarket_user')
         }
+      } else {
+        // If there's a user but no JWT token, it's a stale or invalid session
+        localStorage.removeItem('linuxmarket_user')
+        clearStoredToken()
       }
     } catch {
       // Corrupt localStorage entry — clear it
       localStorage.removeItem('linuxmarket_user')
+      clearStoredToken()
     } finally {
       setIsLoading(false)
     }

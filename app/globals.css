@@ -4,26 +4,26 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* ── LIGHT MODE (Nuevo) ── */
-  --background: oklch(0.18 0.05 331);
-  --foreground: oklch(0.98 0.01 331);
-  --card: oklch(0.22 0.04 331);
-  --card-foreground: oklch(0.98 0.01 331);
-  --popover: oklch(0.20 0.05 331);
-  --popover-foreground: oklch(0.98 0.01 331);
-  --primary: oklch(0.62 0.22 245);
+  /* ── LIGHT MODE (Nuevo Blanco/Azul) ── */
+  --background: oklch(0.99 0.01 245);
+  --foreground: oklch(0.15 0.05 245);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.05 245);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.05 245);
+  --primary: oklch(0.55 0.22 245);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.93 0.03 245);
+  --secondary: oklch(0.95 0.02 245);
   --secondary-foreground: oklch(0.2 0.05 245);
   --muted: oklch(0.95 0.02 245);
-  --muted-foreground: oklch(0.45 0.05 245);
+  --muted-foreground: oklch(0.55 0.05 245);
   --accent: oklch(0.65 0.20 210);
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.57 0.24 27);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.2 0.05 245 / 0.1);
-  --input: oklch(0.2 0.05 245 / 0.05);
-  --ring: oklch(0.62 0.22 245);
+  --border: oklch(0.9 0.02 245);
+  --input: oklch(0.9 0.02 245);
+  --ring: oklch(0.55 0.22 245);
   --radius: 0.85rem;
 
   --chart-1: oklch(0.62 0.22 245);

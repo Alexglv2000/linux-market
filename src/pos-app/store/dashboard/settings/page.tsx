@@ -65,6 +65,10 @@ export default function SettingsPage() {
   const [sucursal, setSucursal] = useState<any>(null)
   const [celula, setCelula] = useState<any>({ name: 'Célula Principal', code: 'CEL001', description: 'Operación Local' })
 
+  // Currency & Regional
+  const [currencyCode, setCurrencyCode] = useState('MXN')
+  const [currencyLocale, setCurrencyLocale] = useState('es-MX')
+
   const loadData = async () => {
     try {
       const accs = await accountsApi.getAll()
@@ -73,6 +77,8 @@ export default function SettingsPage() {
       if (sucs.length > 0) setSucursal(sucs[0])
       
       const sysSettings = await settingsApi.get()
+      
+      // Load everything from Server (Global)
       setThemePrimary(sysSettings.theme_primary || '')
       setThemeAccent(sysSettings.theme_accent || '')
       setGlobalTheme(sysSettings.global_theme || 'dark')
@@ -80,39 +86,43 @@ export default function SettingsPage() {
       setGlobalLogoUrl(sysSettings.global_logo_url || '')
       setTicketLogoUrl(sysSettings.ticket_logo_url || '')
       setAllowedMac(sysSettings.allowed_mac || 'auto')
+
+      // Receipt & Store Settings (Now Global)
+      setTaxRate(sysSettings.tax_rate || '16')
+      setReceiptHeader(sysSettings.receipt_header || '')
+      setReceiptFooter(sysSettings.receipt_footer || 'Gracias por su compra')
+      setPrintOnSale(sysSettings.print_on_sale !== 'false')
+      setSoundOnSale(sysSettings.sound_on_sale !== 'false')
+      setLogoUrl(sysSettings.logo_url || '')
+
+      // Payment Settings (Now Global)
+      setClabe(sysSettings.payment_clabe || '')
+      setBeneficiary(sysSettings.payment_beneficiary || '')
+      setBank(sysSettings.payment_bank || '')
+
+      // Currency
+      setCurrencyCode(sysSettings.currency_code || 'MXN')
+      setCurrencyLocale(sysSettings.currency_locale || 'es-MX')
     } catch {}
   }
 
-  // Load saved settings from localStorage on client only
+  // Load saved settings on mount
   useEffect(() => {
     loadData()
-    try {
-      setClabe(localStorage.getItem('lm_clabe') || '')
-      setBeneficiary(localStorage.getItem('lm_beneficiary') || '')
-      setBank(localStorage.getItem('lm_bank') || '')
-      setTaxRate(localStorage.getItem('lm_tax_rate') || '16')
-      setReceiptHeader(localStorage.getItem('lm_receipt_header') || '')
-      setReceiptFooter(localStorage.getItem('lm_receipt_footer') || 'Gracias por su compra')
-      setPrintOnSale(localStorage.getItem('lm_print_on_sale') !== 'false')
-      setSoundOnSale(localStorage.getItem('lm_sound_on_sale') !== 'false')
-      setLogoUrl(localStorage.getItem('lm_logo_url') || '')
-    } catch {
-      // localStorage not available — use defaults
-    }
   }, [])
 
-  const savePaymentSettings = () => {
+  const savePaymentSettings = async () => {
     try {
       if (clabe && clabe.length !== 18) {
         toast.error('La CLABE interbancaria debe tener exactamente 18 dígitos')
         return
       }
-      localStorage.setItem('lm_clabe', clabe)
-      localStorage.setItem('lm_beneficiary', beneficiary)
-      localStorage.setItem('lm_bank', bank)
-      toast.success('Configuración de pagos guardada')
-    } catch {
-      toast.error('No se pudo guardar la configuración')
+      await settingsApi.set('payment_clabe', clabe)
+      await settingsApi.set('payment_beneficiary', beneficiary)
+      await settingsApi.set('payment_bank', bank)
+      toast.success('Configuración de pagos guardada en el servidor')
+    } catch (e: any) {
+      toast.error('Error al guardar: ' + e.message)
     }
   }
 
@@ -204,22 +214,32 @@ export default function SettingsPage() {
     } catch(e: any) { toast.error(e.message) }
   }
 
-  const saveReceiptSettings = () => {
+  const saveReceiptSettings = async () => {
     try {
       const rate = parseFloat(taxRate)
       if (isNaN(rate) || rate < 0 || rate > 100) {
         toast.error('La tasa de IVA debe ser un número entre 0 y 100')
         return
       }
-      localStorage.setItem('lm_tax_rate', taxRate)
-      localStorage.setItem('lm_receipt_header', receiptHeader)
-      localStorage.setItem('lm_receipt_footer', receiptFooter)
-      localStorage.setItem('lm_print_on_sale', String(printOnSale))
-      localStorage.setItem('lm_sound_on_sale', String(soundOnSale))
-      localStorage.setItem('lm_logo_url', logoUrl)
-      toast.success('Configuración de recibos y logo guardada')
-    } catch {
-      toast.error('No se pudo guardar la configuración')
+      await settingsApi.set('tax_rate', taxRate)
+      await settingsApi.set('receipt_header', receiptHeader)
+      await settingsApi.set('receipt_footer', receiptFooter)
+      await settingsApi.set('print_on_sale', String(printOnSale))
+      await settingsApi.set('sound_on_sale', String(soundOnSale))
+      await settingsApi.set('logo_url', logoUrl)
+      toast.success('Configuración de recibos guardada globalmente')
+    } catch (e: any) {
+      toast.error('Error al guardar: ' + e.message)
+    }
+  }
+
+  const saveCurrencySettings = async () => {
+    try {
+      await settingsApi.set('currency_code', currencyCode)
+      await settingsApi.set('currency_locale', currencyLocale)
+      toast.success('Configuración de moneda y región actualizada')
+    } catch (e: any) {
+      toast.error('Error al guardar moneda: ' + e.message)
     }
   }
 
@@ -493,6 +513,86 @@ export default function SettingsPage() {
 
           <Button onClick={saveAppearanceSettings} className="gap-2 w-full md:w-auto">
             <Save className="w-4 h-4" /> Guardar Apariencia Global
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Regional and Currency Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Globe className="w-4 h-4 text-primary" />
+            Moneda y Ubicación Regional
+          </CardTitle>
+          <CardDescription>
+            Configura la moneda y el formato de fecha/números para toda la plataforma.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Código de Moneda (ISO 4217)</Label>
+              <select 
+                value={currencyCode} 
+                onChange={(e) => setCurrencyCode(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
+              >
+                <option value="MXN">Peso Mexicano (MXN)</option>
+                <option value="USD">Dólar Estadounidense (USD)</option>
+                <option value="EUR">Euro (EUR)</option>
+                <option value="CLP">Peso Chileno (CLP)</option>
+                <option value="COP">Peso Colombiano (COP)</option>
+                <option value="PEN">Sol Peruano (PEN)</option>
+                <option value="ARS">Peso Argentino (ARS)</option>
+                <option value="BRL">Real Brasileño (BRL)</option>
+                <option value="JPY">Yen Japonés (JPY)</option>
+                <option value="GTQ">Quetzal Guatemalteco (GTQ)</option>
+                <option value="HNL">Lempira Hondureña (HNL)</option>
+                <option value="NIO">Córdoba Nicaragüense (NIO)</option>
+                <option value="CRC">Colón Costarricense (CRC)</option>
+                <option value="PAB">Balboa Panameño (PAB)</option>
+                <option value="VES">Bolívar Venezolano (VES)</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Región / Locale (BCP 47)</Label>
+              <select 
+                value={currencyLocale} 
+                onChange={(e) => setCurrencyLocale(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
+              >
+                <option value="es-MX">México (es-MX)</option>
+                <option value="en-US">Estados Unidos (en-US)</option>
+                <option value="es-ES">España (es-ES)</option>
+                <option value="es-CL">Chile (es-CL)</option>
+                <option value="es-CO">Colombia (es-CO)</option>
+                <option value="es-PE">Perú (es-PE)</option>
+                <option value="es-AR">Argentina (es-AR)</option>
+                <option value="pt-BR">Brasil (pt-BR)</option>
+                <option value="ja-JP">Japón (ja-JP)</option>
+                <option value="es-GT">Guatemala (es-GT)</option>
+                <option value="es-HN">Honduras (es-HN)</option>
+                <option value="es-NI">Nicaragua (es-NI)</option>
+                <option value="es-CR">Costa Rica (es-CR)</option>
+                <option value="es-PA">Panamá (es-PA)</option>
+                <option value="es-VE">Venezuela (es-VE)</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 flex items-start gap-3">
+            <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              <strong>Vista Previa:</strong> El sistema mostrará los precios como: <span className="font-bold text-primary">{
+                new Intl.NumberFormat(currencyLocale, { style: 'currency', currency: currencyCode }).format(1250.50)
+              }</span>
+              <br />
+              Esta configuración afectará al POS, Kiosko e Inventario de forma inmediata en todos los terminales.
+            </div>
+          </div>
+
+          <Button onClick={saveCurrencySettings} className="gap-2 w-full md:w-auto">
+            <Save className="w-4 h-4" /> Guardar Configuración Regional
           </Button>
         </CardContent>
       </Card>

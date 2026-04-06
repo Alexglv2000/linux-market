@@ -20,6 +20,8 @@ import {
 import { toast } from 'sonner'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
+import { useScanner } from '@/hooks/use-scanner'
+import { useCurrency } from '@/hooks/use-currency'
 
 type FormData = {
   sku: string; name: string; description: string; category: string
@@ -31,6 +33,7 @@ const EMPTY_FORM: FormData = { sku: '', name: '', description: '', category: '',
 export default function InventoryPage() {
   const { user } = useAuth()
   const { products, connected, loading, refresh } = useRealtimeProducts()
+  const { formatCurrency: fmt } = useCurrency()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -46,50 +49,24 @@ export default function InventoryPage() {
 
   const skuRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
-  const scanBuffer = useRef('')
-  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   // Auto-focus SKU en diálogo
   useEffect(() => {
     if (isDialogOpen) setTimeout(() => skuRef.current?.focus(), 100)
   }, [isDialogOpen])
 
-  // ── Escáner de código de barras global ──────────────────────
-  // Los escáneres USB emiten teclas muy rápidamente terminadas en Enter.
-  // Detectamos esa ráfaga y la procesamos como código de barras.
-  useEffect(() => {
-    if (!scanMode) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        const code = scanBuffer.current.trim()
-        scanBuffer.current = ''
-        if (code.length >= 3) processBarcode(code)
-      } else if (e.key.length === 1) {
-        scanBuffer.current += e.key
-        // Si el buffer está quieto >150ms, limpiarlo (entrada manual)
-        if (scanTimer.current) clearTimeout(scanTimer.current)
-        scanTimer.current = setTimeout(() => { scanBuffer.current = '' }, 150)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [scanMode, products])
-
-  const processBarcode = useCallback(async (code: string) => {
-    setScanResult(code)
-    const existing = products.find(p => p.sku === code && p.isActive)
-    if (existing) {
-      toast.success(`✅ Producto encontrado: ${existing.name}`)
-      openEditDialog(existing)
+  // ── Escáner de código de barras global (vía hook universal) ──────────────────────
+  useScanner((product, rawCode) => {
+    setScanResult(rawCode)
+    if (product) {
+      toast.success(`✅ Producto encontrado: ${product.name}`)
+      openEditDialog(product)
     } else {
-      toast.info(`📦 Código nuevo: ${code} — Abre formulario para registrarlo`)
-      setFormData({ ...EMPTY_FORM, sku: code })
+      toast.info(`📦 Código nuevo: ${rawCode} — Abre formulario para registrarlo`)
+      setFormData({ ...EMPTY_FORM, sku: rawCode })
       setEditingProduct(null)
       setIsDialogOpen(true)
     }
-  }, [products])
+  }, scanMode)
 
   // Filtrado
   const filteredProducts = products.filter(p => {
@@ -172,7 +149,7 @@ export default function InventoryPage() {
     doc.setFontSize(18); doc.text('Inventario — Linux Market', 14, 20)
     doc.setFontSize(10); doc.text(`Generado: ${new Date().toLocaleString('es-MX')}`, 14, 28)
     // @ts-ignore
-    doc.autoTable({ startY: 35, head: [['SKU', 'Nombre', 'Categoría', 'Precio', 'Stock']], body: filteredProducts.map(p => [p.sku, p.name, p.category, `$${p.price.toFixed(2)}`, p.stock]), theme: 'striped', headStyles: { fillColor: [99, 102, 241] } })
+    doc.autoTable({ startY: 35, head: [['SKU', 'Nombre', 'Categoría', 'Precio', 'Stock']], body: filteredProducts.map(p => [p.sku, p.name, p.category, fmt(p.price), p.stock]), theme: 'striped', headStyles: { fillColor: [99, 102, 241] } })
     doc.save(`inventario_${Date.now()}.pdf`)
     toast.success('PDF generado')
   }
@@ -319,7 +296,7 @@ export default function InventoryPage() {
             <CardTitle className="text-sm font-medium">Valor del Inventario</CardTitle>
             <Package className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent><div className="text-2xl font-bold">${totalValue.toLocaleString('es-MX')}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold">{fmt(totalValue)}</div></CardContent>
         </Card>
         <Card className={lowStockCount > 0 ? 'border-destructive/50' : ''}>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -372,8 +349,8 @@ export default function InventoryPage() {
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-tighter border-white/10">{product.category || '—'}</Badge>
                     </TableCell>
-                    <TableCell className="text-right font-black">${product.price.toLocaleString('es-MX')}</TableCell>
-                    <TableCell className="text-right text-muted-foreground text-xs">${product.cost.toLocaleString('es-MX')}</TableCell>
+                    <TableCell className="text-right font-black">{fmt(product.price)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground text-xs">{fmt(product.cost)}</TableCell>
                     <TableCell className="text-center">
                       {quickStockId === product.id ? (
                         <div className="flex items-center gap-1 justify-center">
@@ -457,7 +434,7 @@ export default function InventoryPage() {
                    <CardTitle className="text-sm font-bold leading-tight line-clamp-2 min-h-[2.5rem] group-hover:text-primary transition-colors">{product.name}</CardTitle>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 flex items-center justify-between">
-                   <div className="text-lg font-black text-foreground">${product.price.toLocaleString('es-MX')}</div>
+                   <div className="text-lg font-black text-foreground">{fmt(product.price)}</div>
                    <div className="text-[10px] text-muted-foreground font-medium italic">Margen: {Math.round(((product.price - product.cost) / product.price) * 100)}%</div>
                 </CardContent>
              </Card>

@@ -9,7 +9,20 @@ if command -v ufw > /dev/null; then
     ufw reload > /dev/null 2>&1 || true
     echo "✅ Regla de puerto 3001 añadida a UFW (si está activo)."
 else
-    echo "⚠️ UFW no detectado. Si utilizas otro firewall (nftables, iptables, etc.), permite el puerto 3001/TCP manualmente para que la red local funcione."
+    echo "⚠️ UFW no detectado. Si utilizas otro firewall, permite el puerto 3001/TCP manualmente."
+fi
+
+# 📝 Sincronizar Metainfo (AppStream) para que aparezcan capturas en AppStore
+METADATA_SOURCE="/usr/lib/Linux-Market/com.linuxmarket.pos.metainfo.xml"
+METADATA_DEST="/usr/share/metainfo"
+
+if [ -f "$METADATA_SOURCE" ]; then
+    echo "📝 Registrando metadatos AppStream..."
+    mkdir -p "$METADATA_DEST"
+    cp "$METADATA_SOURCE" "$METADATA_DEST/"
+    echo "✅ Metadatos registrados exitosamente."
+else
+    echo "⚠️ No se encontró el archivo de metadatos en $METADATA_SOURCE"
 fi
 
 exit 0

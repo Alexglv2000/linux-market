@@ -71,7 +71,7 @@ CARGO_BUILD_JOBS=1 pnpm tauri build
 
 # 4. Generar Tarball manual (.tar.gz) optimizado
 echo "🗜️ Generando Tarball (.tar.gz) optimizado..."
-BUILD_NAME="linux-market-pos-v1.2.0"
+BUILD_NAME="linux-market-pos-v1.2.3"
 mkdir -p "dist/$BUILD_NAME"
 cp src-tauri/target/release/linux-market "dist/$BUILD_NAME/"
 cp dist-server-bundle/index.js "dist/$BUILD_NAME/server.js"

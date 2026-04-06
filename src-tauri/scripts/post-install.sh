@@ -13,7 +13,20 @@ if command -v firewall-cmd > /dev/null; then
         echo "⚠️ Firewalld detectado pero no está activo."
     fi
 else
-    echo "⚠️ firewall-cmd no detectado. Si utilizas otro firewall (nftables, iptables, etc.), permite el puerto 3001/TCP en tu configuración de red."
+    echo "⚠️ firewall-cmd no detectado. Si utilizas otro firewall, permite el puerto 3001/TCP."
+fi
+
+# 📝 Sincronizar Metainfo (AppStream) para que aparezcan capturas en AppStore
+METADATA_SOURCE="/usr/lib/Linux-Market/com.linuxmarket.pos.metainfo.xml"
+METADATA_DEST="/usr/share/metainfo"
+
+if [ -f "$METADATA_SOURCE" ]; then
+    echo "📝 Registrando metadatos AppStream..."
+    mkdir -p "$METADATA_DEST"
+    cp "$METADATA_SOURCE" "$METADATA_DEST/"
+    echo "✅ Metadatos registrados exitosamente."
+else
+    echo "⚠️ No se encontró el archivo de metadatos en $METADATA_SOURCE"
 fi
 
 exit 0

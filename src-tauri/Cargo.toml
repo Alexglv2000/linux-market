@@ -1,8 +1,10 @@
 [package]
 name = "linux-market"
-version = "1.2.0"
-description = "Sistema POS moderno para impresoras personalizadas"
-authors = ["Linux-Market Team"]
+version = "1.2.3"
+description = "POS free para Linux y un pequeño grano de arena para la comunidad"
+authors = ["Alexis Gabriel Lugo Villeda <alexglv2000@gmail.com>"]
+license = "MIT"
+homepage = "https://linux-market.vercel.app/"
 edition = "2021"
 
 [build-dependencies]

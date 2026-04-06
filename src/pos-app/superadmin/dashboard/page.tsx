@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import {
   Shield, Users, Store, Settings, LogOut, Cpu, AlertTriangle,
   Plus, Trash2, RefreshCw, Key, Eye, EyeOff, Lock,
-  BarChart3, Database, Terminal, CreditCard, Palette, Monitor
+  BarChart3, Database, Terminal, CreditCard, Palette, Monitor, Globe
 } from 'lucide-react'
 import { usersApi, salesApi, productsApi, sucursalesApi, settingsApi, infoApi, statsApi } from '@/lib/api'
 import { useSettings } from '@/lib/settings-context'
@@ -141,6 +141,7 @@ export default function SuperAdminDashboard() {
               { id: 'overview', label: 'Ecosistema Global', icon: BarChart3, desc: 'ESTADO DE RED' },
               { id: 'users', label: 'Unidad de Acceso', icon: Users, desc: 'ROLES & STAFF' },
               { id: 'security', label: 'Núcleo de Cifrado', icon: Lock, desc: 'HARDWARE LOGS' },
+              { id: 'regional', label: 'Moneda & Región', icon: Globe, desc: 'SISTEMA GLOBAL' },
               { id: 'payments', label: 'Tesoreria Digital', icon: CreditCard, desc: 'PASARELA MIGRADA' },
               { id: 'theme', label: 'Sincronía Visual', icon: Palette, desc: 'BRANDING OS' },
               { id: 'system', label: 'Hardware & API', icon: Database, desc: 'SERVER NODES' },
@@ -452,6 +453,11 @@ export default function SuperAdminDashboard() {
               </Card>
             )}
 
+            {/* REGIONAL CONFIG */}
+            {activeTab === 'regional' && (
+              <RegionalConfig />
+            )}
+
             {/* PAYMENTS CONFIG */}
             {activeTab === 'payments' && (
               <PaymentConfig />
@@ -469,6 +475,77 @@ export default function SuperAdminDashboard() {
         </main>
       </div>
     </div>
+  )
+}
+
+function RegionalConfig() {
+  const { settings } = useSettings()
+  const [code, setCode] = useState('MXN')
+  const [locale, setLocale] = useState('es-MX')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (settings) {
+      setCode(settings.currency_code || 'MXN')
+      setLocale(settings.currency_locale || 'es-MX')
+    }
+  }, [settings])
+
+  const save = async () => {
+    setLoading(true)
+    try {
+      await settingsApi.set('currency_code', code)
+      await settingsApi.set('currency_locale', locale)
+      toast.success('Configuración de moneda sincronizada globalmente')
+    } catch (e: any) { toast.error(e.message) }
+    setLoading(false)
+  }
+
+  return (
+    <Card className="border-white/10 bg-card/30">
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Globe className="w-4 h-4 text-red-500" /> Control Regional Global
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Define la moneda y el formato regional para todas las terminales y dashboards del ecosistema.</p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid md:grid-cols-2 gap-4 max-w-xl">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Código de Moneda</Label>
+            <Select value={code} onValueChange={setCode}>
+              <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {['MXN', 'USD', 'EUR', 'CLP', 'COP', 'PEN', 'ARS', 'BRL', 'JPY', 'GTQ', 'HNL', 'NIO', 'CRC', 'PAB', 'VES'].map(c => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Ubicación (Locale)</Label>
+            <Select value={locale} onValueChange={setLocale}>
+              <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {['es-MX', 'en-US', 'es-ES', 'es-CL', 'es-CO', 'es-PE', 'es-AR', 'pt-BR', 'ja-JP', 'es-GT', 'es-HN', 'es-NI', 'es-CR', 'es-PA', 'es-VE'].map(l => (
+                  <SelectItem key={l} value={l}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3 max-w-xl">
+           <Shield className="w-4 h-4 text-red-500" />
+           <p className="text-[10px] text-muted-foreground">Vista previa: <span className="text-white font-black">{new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(1250.5)}</span></p>
+        </div>
+
+        <Button onClick={save} disabled={loading} className="bg-red-600 hover:bg-red-500 shadow-lg shadow-red-600/20">
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Globe className="w-4 h-4 mr-2" />}
+          Sincronizar Universo Regional
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

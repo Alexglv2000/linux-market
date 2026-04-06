@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { useAuth } from '@/lib/auth-context'
+import { useCurrency } from '@/hooks/use-currency'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ import { AIAdvisor } from '@/components/ai-advisor'
 
 export default function DashboardPage() {
   const { user } = useAuth()
+  const { formatCurrency: fmt } = useCurrency()
   const [salesData, setSalesData] = useState<any[]>([])
   const [localIp, setLocalIp] = useState<string>('...')
   const [serverPort, setServerPort] = useState<string>('3000')
@@ -113,7 +115,7 @@ export default function DashboardPage() {
       },
       {
         name: 'Ingresos Totales',
-        value: `$${totalRevenue.toLocaleString('es-MX')}`,
+        value: fmt(totalRevenue),
         icon: DollarSign,
         change: '+8%',
         changeType: 'positive' as const,
@@ -347,7 +349,7 @@ export default function DashboardPage() {
                   <Tooltip 
                     contentStyle={{ backgroundColor: 'oklch(0.11 0.03 285)', border: '1px solid oklch(0.28 0.05 290 / 0.2)', borderRadius: '1rem', backdropFilter: 'blur(10px)' }}
                     itemStyle={{ color: 'white', fontWeight: 900 }}
-                    formatter={(value: any) => [`$${value.toLocaleString('es-MX')}`, 'Ingresos']}
+                    formatter={(value: any) => [fmt(value), 'Ingresos']}
                   />
                   <Line type="monotone" dataKey="total" stroke="oklch(0.7 0.3 140)" strokeWidth={4} dot={{ fill: 'oklch(0.7 0.3 140)', r: 6 }} activeDot={{ r: 8, stroke: 'white', strokeWidth: 4 }} />
                 </LineChart>

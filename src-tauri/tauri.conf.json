@@ -39,6 +39,7 @@
       "icons/icon.ico"
     ],
     "resources": [
+      "com.linuxmarket.pos.metainfo.xml",
       "../dist-server-bundle/**/*",
       "../node_modules/better-sqlite3/**/*",
       "../node_modules/bindings/**/*",
@@ -47,10 +48,16 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["nodejs", "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37", "libgtk-3-0", "libayatana-appindicator3-1"]
+        "depends": ["nodejs", "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37", "libgtk-3-0", "libayatana-appindicator3-1"],
+        "files": {
+          "/usr/share/metainfo/com.linuxmarket.pos.metainfo.xml": "com.linuxmarket.pos.metainfo.xml"
+        }
       },
       "rpm": {
-        "depends": ["nodejs", "webkit2gtk4.0", "gtk3", "libayatana-appindicator3"]
+        "depends": ["nodejs", "webkit2gtk4.0", "gtk3", "libayatana-appindicator3"],
+        "files": {
+          "/usr/share/metainfo/com.linuxmarket.pos.metainfo.xml": "com.linuxmarket.pos.metainfo.xml"
+        }
       },
       "appimage": {
         "bundleMediaFramework": false

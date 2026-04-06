@@ -17,6 +17,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { useCurrency } from '@/hooks/use-currency'
+import { useScanner } from '@/hooks/use-scanner'
 
 interface CartItem {
   product: any
@@ -27,6 +29,8 @@ interface CartItem {
 export default function POSPage() {
   const { user } = useAuth()
   const { products, connected, loading, refresh } = useRealtimeProducts()
+  const { formatCurrency: fmt } = useCurrency()
+  
   useEffect(() => {
     // Solo informamos en consola si no es nativo, pero permitimos el acceso
     if (typeof window !== 'undefined' && !(window as any).__TAURI__) {
@@ -102,7 +106,16 @@ export default function POSPage() {
   const subtotal = cart.reduce((s, c) => s + itemTotal(c), 0)
   const tax = subtotal * (taxRate / 100)
   const total = subtotal + tax
-  const fmt = (n: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
+
+  // Hardware Scanner Integration (Omnidirectional/Pistols)
+  // Even if search input is NOT focused, this captures standard POS laser scans.
+  useScanner((product, rawCode) => {
+    if (product) {
+      addToCart(product)
+    } else {
+      toast.error(`Producto NO encontrado: ${rawCode}`)
+    }
+  })
 
   const playSuccessSound = () => {
     try {
@@ -158,8 +171,52 @@ export default function POSPage() {
       setPaymentOpen(false)
       setShowReceipt(true)
       playSuccessSound()
+
+      // 🖨️ IMPRESIÓN AUTOMÁTICA (Si está habilitada en Settings Globales)
+      if (settings.print_on_sale !== 'false') {
+        printTicketHandler({ ...created, items: salePayload.items })
+      }
     } catch (e: any) {
       alert(`Error al procesar venta: ${e.message}`)
+    }
+  }
+
+  const printTicketHandler = async (sale: any) => {
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        
+        let ticketStr = `\x1b\x40` // Inicializar ESC/POS
+        ticketStr += `\x1b\x61\x01` // Centrar
+        ticketStr += `\x1b\x45\x01${settings.receipt_header || 'LINUX MARKET POS'}\x1b\x45\x00\n`
+        ticketStr += `Ticket: ${sale.saleNumber}\n`
+        ticketStr += `Fecha: ${new Date(sale.createdAt || Date.now()).toLocaleString()}\n`
+        ticketStr += `Atendido por: ${user?.name || 'Vendedor'}\n\n`
+        
+        ticketStr += `\x1b\x61\x00` // Izquierda
+        sale.items.forEach((item: any) => {
+          ticketStr += `${item.name.substring(0, 22).padEnd(22)} x${item.quantity}\n`
+          ticketStr += `      ${fmt(item.price).padStart(10)}  ${fmt(item.subtotal).padStart(10)}\n`
+        })
+        
+        ticketStr += `\n--------------------------------\n`
+        ticketStr += `\x1b\x61\x02` // Derecha
+        ticketStr += `SUBTOTAL: ${fmt(sale.subtotal)}\n`
+        ticketStr += `IVA (${taxRate}%): ${fmt(sale.tax)}\n`
+        ticketStr += `\x1b\x45\x01TOTAL: ${fmt(sale.total)}\x1b\x45\x00\n`
+        
+        ticketStr += `\x1b\x61\x01` // Centro
+        ticketStr += `\n${settings.receipt_footer || '¡Gracias por su compra!'}\n`
+        ticketStr += `\n\n\n\n\n\n\x1b\x6d` // Cortar papel
+
+        await invoke('print_ticket', { content: ticketStr })
+        toast.success('Ticket enviado a la impresora')
+      } catch (e: any) {
+        toast.error('Error de hardware: ' + e.message)
+      }
+    } else {
+      // Fallback para web: usar impresión de navegador
+      window.print()
     }
   }
 
@@ -372,8 +429,8 @@ export default function POSPage() {
               <div className="flex justify-between text-xs text-muted-foreground"><span>Método</span><span className="capitalize">{lastSale.paymentMethod}</span></div>
             </div>
             <div className="p-4 pt-0 flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1 border-white/10 gap-1.5" onClick={() => window.print()}>
-                <ReceiptText className="w-3.5 h-3.5" /> Imprimir
+              <Button variant="outline" size="sm" className="flex-1 border-white/10 gap-1.5" onClick={() => printTicketHandler(lastSale)}>
+                <RefreshCw className="w-3.5 h-3.5" /> Re-imprimir
               </Button>
               <Button size="sm" className="flex-1 bg-gradient-to-r from-primary to-accent" onClick={() => setShowReceipt(false)}>Nueva venta</Button>
             </div>

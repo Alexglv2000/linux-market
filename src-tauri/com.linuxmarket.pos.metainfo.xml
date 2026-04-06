@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.linuxmarket.pos</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Linux-Market</name>
+  <summary>POS free para Linux y un pequeño grano de arena para la comunidad</summary>
+  <description>
+    <p>
+      Linux-Market es un ecosistema POS moderno, gratuito y de código abierto diseñado para transformar la gestión de ventas e inventarios en sistemas Linux. Construido con el alto rendimiento de Rust y React, ofrece una experiencia fluida y robusta para microempresas.
+    </p>
+    <ul>
+      <li>Gestión de productos y stock en tiempo real.</li>
+      <li>Modo Kiosko de auto-pago con cierre de sesión automático.</li>
+      <li>Soporte para múltiples sucursales y sincronización de red.</li>
+      <li>Integración con periféricos industriales (escáneres y térmicas).</li>
+      <li>Reportes analíticos avanzados y auditoría detallada.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">Linux-Market.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption text="Panel de Control Principal">Tablero con analíticas y estado del sistema</caption>
+      <image>https://raw.githubusercontent.com/Alexglv2000/linux-market/main/public/screenshots/dashboard.png</image>
+    </screenshot>
+    <screenshot>
+      <caption text="Punto de Venta (POS)">Interfaz optimizada para cajeros con acceso rápido</caption>
+      <image>https://raw.githubusercontent.com/Alexglv2000/linux-market/main/public/screenshots/pos.png</image>
+    </screenshot>
+    <screenshot>
+      <caption text="Gestión de Inventario">Filtros avanzados, SKU y escaneo de códigos de barras</caption>
+      <image>https://raw.githubusercontent.com/Alexglv2000/linux-market/main/public/screenshots/inventory.png</image>
+    </screenshot>
+    <screenshot>
+      <caption text="Consola Maestra de Seguridad">Acceso de Super Usuario para control total del ecosistema</caption>
+      <image>https://raw.githubusercontent.com/Alexglv2000/linux-market/main/public/screenshots/superadmin.png</image>
+    </screenshot>
+    <screenshot>
+      <caption text="Panel de Reportes">Analíticas de ventas, tendencias y flujo de caja</caption>
+      <image>https://raw.githubusercontent.com/Alexglv2000/linux-market/main/public/screenshots/reports.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://linux-market.vercel.app/</url>
+  <developer_name>Alexis Gabriel Lugo Villeda</developer_name>
+</component>

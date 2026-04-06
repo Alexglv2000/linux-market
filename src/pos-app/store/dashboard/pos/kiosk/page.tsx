@@ -15,6 +15,8 @@ import {
   QrCode, Building2, ArrowLeft, Monitor, Maximize2, Minimize2,
   Hand, Touchpad, MousePointer2, Smartphone
 } from 'lucide-react'
+import { useCurrency } from '@/hooks/use-currency'
+import { useScanner } from '@/hooks/use-scanner'
 
 interface CartItem {
   product: any
@@ -35,6 +37,7 @@ export default function KioskPage() {
   const { user } = useAuth()
   const { products, loading, refresh } = useRealtimeProducts()
   const { settings } = useSettings()
+  const { formatCurrency: fmt } = useCurrency()
 
   const [step, setStep] = useState<KioskStep>('browse')
   const [cart, setCart] = useState<CartItem[]>([])
@@ -59,18 +62,29 @@ export default function KioskPage() {
   const total = subtotal + tax
   const change = parseFloat(cashReceived || '0') - total
   const itemCount = cart.reduce((s, c) => s + c.quantity, 0)
-  const fmt = (n: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
+  
+  // Hardware Scanner Integration
+  useScanner((product, rawCode) => {
+    if (step !== 'browse') {
+      // Si escanean pero no están en la vista de comprar, regresamos a browse
+      setStep('browse')
+    }
+    if (product) {
+      addToCart(product)
+    }
+  })
 
   // Idle reset: if no interaction for 60s, return to browse
   const resetIdle = useCallback(() => {
     if (idleTimer) clearTimeout(idleTimer)
     // Pantalla de inactividad a los 45s
     const t = setTimeout(() => {
-      if (cart.length === 0 && step === 'browse') {
+      // Si está inactivo y NO está en la vista final, mostrar saludo
+      if (step !== 'done') {
         setShowIdle(true)
       }
       
-      // Reset total a los 90s
+      // Reset total agresivo a los 90s: Vaciar el carrito abandonado
       setTimeout(() => {
         setStep('browse')
         setCart([])
@@ -82,7 +96,7 @@ export default function KioskPage() {
     }, 45000)
     setIdleTimer(t)
     setShowIdle(false)
-  }, [idleTimer, cart.length, step])
+  }, [idleTimer, step])
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -142,13 +156,18 @@ export default function KioskPage() {
     if (!user || !payMethod) return
     setIsProcessing(true)
     try {
+      // ESTABILIDAD DE PRECIOS: Limpiar Float Dust antes de Guardar
+      const roundedSubtotal = Math.round(subtotal * 100) / 100;
+      const roundedTax = Math.round(tax * 100) / 100;
+      const roundedTotal = Math.round(total * 100) / 100;
+
       const salePayload = {
         saleNumber: `KSK-${Date.now().toString(36).toUpperCase()}`,
         userId: user.id,
         username: user.username,
         sucursalId: user.sucursalId || 'SUC001',
         celulaId: user.celulaId || 'CEL001',
-        subtotal, tax, discount: 0, total,
+        subtotal: roundedSubtotal, tax: roundedTax, discount: 0, total: roundedTotal,
         paymentMethod: payMethod,
         status: 'completada',
         items: cart.map(c => ({
@@ -157,24 +176,62 @@ export default function KioskPage() {
           name: c.product.name,
           quantity: c.quantity,
           price: c.product.price,
-          subtotal: c.product.price * c.quantity,
+          subtotal: Math.round(c.product.price * c.quantity * 100) / 100,
         })),
       }
       const created = await salesApi.create(salePayload)
       setLastSale({ ...created, items: salePayload.items })
       setStep('done')
-      // Auto-reset after 8 seconds on done screen
+      
+      await printTicketHandler(salePayload)
+
+      // Auto-reset after 10 seconds on done screen
       setTimeout(() => {
         setStep('browse')
         setCart([])
         setPayMethod(null)
         setCashReceived('')
         setLastSale(null)
-      }, 8000)
+      }, 10000)
     } catch (e: any) {
       alert(`Error al procesar: ${e.message}`)
     } finally {
       setIsProcessing(false)
+    }
+  }
+
+  const printTicketHandler = async (salePayload: any) => {
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        
+        let ticketStr = `\x1b\x40` // Initialize ESC/POS
+        ticketStr += `\x1b\x61\x01` // Center align
+        ticketStr += `\x1b\x45\x01LINUX MARKET POS\x1b\x45\x00\n` // Bold
+        ticketStr += `Autocobro Express\n`
+        ticketStr += `Ticket: ${salePayload.saleNumber}\n`
+        ticketStr += `Atendido por: KIOSKO\n\n`
+        ticketStr += `\x1b\x61\x00` // Left align
+        
+        salePayload.items.forEach((c: any) => {
+           ticketStr += `${c.name.substring(0, 20)}\n`
+           ticketStr += `${c.quantity}x ${fmt(c.price)}  -  ${fmt(c.subtotal)}\n`
+        })
+        
+        ticketStr += `\n--------------------------------\n`
+        ticketStr += `\x1b\x61\x02` // Right align
+        ticketStr += `SUBTOTAL: ${fmt(salePayload.subtotal)}\n`
+        ticketStr += `IVA: ${fmt(salePayload.tax)}\n`
+        ticketStr += `\x1b\x45\x01TOTAL: ${fmt(salePayload.total)}\x1b\x45\x00\n`
+        
+        ticketStr += `\x1b\x61\x01` // Center
+        ticketStr += `\nGracias por su compra!\n`
+        ticketStr += `\n\n\n\n\n\n\n\n\x1b\x6d` // Feed lines and cut
+
+        await invoke('print_ticket', { content: ticketStr })
+      } catch (hwError) {
+        console.warn('[Hardware] Error enviando a impresora:', hwError)
+      }
     }
   }
 
@@ -554,6 +611,13 @@ export default function KioskPage() {
                 </div>
               )}
             </div>
+            
+            <div className="pt-2 animate-in slide-in-from-bottom-5 fade-in duration-500 delay-500">
+               <Button onClick={() => printTicketHandler(lastSale)} variant="outline" size="lg" className="rounded-full bg-background border-border shadow-lg font-bold gap-2">
+                 <RefreshCw className="w-4 h-4" /> Reimprimir Ticket
+               </Button>
+            </div>
+            
             <p className="text-muted-foreground text-sm animate-pulse">Esta pantalla se reiniciará automáticamente...</p>
           </div>
         </div>
