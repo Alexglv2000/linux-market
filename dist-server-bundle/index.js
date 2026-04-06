@@ -28470,7 +28470,10 @@ const PUBLIC_PATHS = new Set([
  * Injects req.auth = { id, username, role } on success.
  */
 function authMiddleware(req, res, next) {
-  // Always allow public paths
+  // Bypass middleware for non-API paths (static files, Next.js pages)
+  if (!req.path.startsWith('/api/')) return next()
+
+  // Always allow public API paths
   if (PUBLIC_PATHS.has(req.path)) return next()
 
   // Extract token from Authorization header
