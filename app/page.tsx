@@ -917,15 +917,32 @@ export default function PublicityLandingPage() {
             <div className="relative flex items-center justify-center">
               <div className="relative w-72 h-72 md:w-96 md:h-96">
                 <div className="absolute inset-0 bg-gradient-to-br from-violet-600/30 to-indigo-600/20 rounded-full blur-3xl" />
-                <div className="relative w-full h-full glass-card rounded-full flex items-center justify-center border border-violet-500/20 shadow-2xl">
-                  <img
-                    src="/iconolinuxmarket.png"
-                    alt="Linux Market central logo"
-                    className="w-3/5 h-3/5 object-contain drop-shadow-2xl animate-float"
-                  />
-                  <div className="absolute inset-4 rounded-full border border-blue-500/10 animate-spin" style={{ animationDuration: '20s' }} />
-                  <div className="absolute inset-10 rounded-full border border-blue-500/8 animate-spin" style={{ animationDuration: '30s', animationDirection: 'reverse' }} />
-                </div>
+                  <div className="relative w-full h-full glass-card rounded-full flex items-center justify-center border border-violet-500/20 shadow-2xl transition-all duration-1000 hover:shadow-cyan-500/30 group">
+                    <img
+                      src="/iconolinuxmarket.png"
+                      alt="Linux Market central logo"
+                      className="w-3/5 h-3/5 object-contain drop-shadow-2xl animate-float"
+                    />
+                    <div className="absolute inset-4 rounded-full border border-blue-500/10 animate-spin" style={{ animationDuration: '20s' }} />
+                    <div className="absolute inset-10 rounded-full border border-blue-500/8 animate-spin" style={{ animationDuration: '30s', animationDirection: 'reverse' }} />
+                    
+                    {/* Secondary Freshness Badge (Inside/Below Circle) */}
+                    <div className="absolute -bottom-16 w-80 z-20 animate-in fade-in slide-in-from-bottom-5 duration-1000">
+                      <div className={`glass-card p-4 rounded-2xl border transition-all duration-700 shadow-2xl flex flex-col items-center justify-center ${ghStats.isNew ? 'border-red-500/40 bg-red-500/5' : 'border-blue-500/30'}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`w-2 h-2 rounded-full ${ghStats.isNew ? 'bg-red-500 animate-ping' : 'bg-blue-400 animate-pulse'}`} />
+                          <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">SOFTWARE 100% ACTUALIZADO</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                           <span className="text-sm font-black text-white">{ghStats.version}</span>
+                           <div className="w-px h-3 bg-white/10" />
+                           <span className={`text-sm font-bold ${ghStats.isNew ? 'text-red-500' : 'text-blue-400'}`}>
+                             {ghStats.isNew ? `hace ${ghStats.timeAgo}` : ghStats.lastUpdate}
+                           </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
               </div>
             </div>
           </div>
