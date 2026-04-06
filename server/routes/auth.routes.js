@@ -24,6 +24,7 @@ const config    = require('../config/env')
 const logger    = require('../services/logger.service')
 const broadcast = require('../services/broadcast.service')
 const { getMacAddress, isTrustedMac } = require('../services/hardware.service')
+const { signToken } = require('../middlewares/auth.middleware')
 const repo      = require('../db/repository')
 
 // Resolve MAC once at module load (stable per process lifetime)
@@ -100,15 +101,18 @@ router.post('/login', (req, res) => {
       }
     }
 
-    // 4. Audit log + respond (strip password from response)
+    // 4. Audit log + respond (strip password from response, add JWT token)
     const { password: _pw, ...safe } = user
     repo.run(
       'INSERT INTO audit_logs (userId, username, action, entity, entityId, changes) VALUES (?, ?, ?, ?, ?, ?)',
       [user.id, user.username, 'login', 'auth', String(user.id), JSON.stringify({ role: user.role })]
     )
 
+    // Generate a JWT token valid for 12 hours (one working shift)
+    const token = signToken(safe)
+
     logger.info(`[Auth] Login successful: ${username} (${user.role})`)
-    res.json({ user: safe })
+    res.json({ user: safe, token })
 
   } catch (err) {
     logger.safeError('[Auth Login]', err)

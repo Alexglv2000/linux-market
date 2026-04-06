@@ -13,9 +13,30 @@ function getApiBase(): string {
 
 export const API_BASE = typeof window !== 'undefined' ? getApiBase() : 'http://localhost:3001'
 
+// JWT token management helpers
+const TOKEN_KEY = 'linuxmarket_token'
+
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setStoredToken(token: string): void {
+  if (typeof window !== 'undefined') localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearStoredToken(): void {
+  if (typeof window !== 'undefined') localStorage.removeItem(TOKEN_KEY)
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  // Attach JWT token to every request if available
+  const token = getStoredToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   })
   if (!res.ok) {
@@ -28,7 +49,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 // ── AUTH ───────────────────────────────────────────────────────
 export const authApi = {
   login: (username: string, password: string, force: boolean = false) =>
-    apiFetch<{ user: any }>('/api/auth/login', {
+    apiFetch<{ user: any; token: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, force }),
     }),

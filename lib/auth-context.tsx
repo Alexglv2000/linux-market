@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { type User } from './db'
 import { useRouter } from 'next/navigation'
-import { authApi } from './api'
+import { authApi, setStoredToken, clearStoredToken } from './api'
 
 interface AuthContextType {
   user: User | null
@@ -48,6 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userWithoutPassword = result.user
       setUser(userWithoutPassword)
       localStorage.setItem('linuxmarket_user', JSON.stringify(userWithoutPassword))
+      // Store JWT so all subsequent API calls are authenticated
+      if (result.token) setStoredToken(result.token)
       return true
     } catch (error: any) {
       console.error('[LinuxMarket] Login error:', error)
@@ -58,7 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     setUser(null)
-    try { localStorage.removeItem('linuxmarket_user') } catch { /* SSR safety */ }
+    try {
+      localStorage.removeItem('linuxmarket_user')
+      clearStoredToken()  // Invalidate the JWT on the client side
+    } catch { /* SSR safety */ }
     router.push('/store/login')
   }
 

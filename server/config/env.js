@@ -57,6 +57,10 @@ const config = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   IS_PROD:  process.env.NODE_ENV === 'production',
 
+  // JWT signing secret — MUST be set as env variable in production
+  // Generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+  JWT_SECRET: process.env.LM_JWT_SECRET || null,
+
   // Hardware lock — list of trusted MACs from environment
   // Format in .env: SUPERADMIN_ALLOWED_MACS=AA:BB:CC:DD:EE:FF,11:22:33:44:55:66
   ALLOWED_MACS: (process.env.SUPERADMIN_ALLOWED_MACS || '')
