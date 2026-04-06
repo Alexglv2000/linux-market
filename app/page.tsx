@@ -928,17 +928,23 @@ export default function PublicityLandingPage() {
                     
                     {/* Secondary Freshness Badge (Inside/Below Circle) */}
                     <div className="absolute -bottom-16 w-80 z-20 animate-in fade-in slide-in-from-bottom-5 duration-1000">
-                      <div className={`glass-card p-4 rounded-2xl border transition-all duration-700 shadow-2xl flex flex-col items-center justify-center ${ghStats.isNew ? 'border-red-500/40 bg-red-500/5' : 'border-blue-500/30'}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`w-2 h-2 rounded-full ${ghStats.isNew ? 'bg-red-500 animate-ping' : 'bg-blue-400 animate-pulse'}`} />
-                          <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">SOFTWARE 100% ACTUALIZADO</span>
+                      <div className={`p-5 rounded-3xl border-2 transition-all duration-700 shadow-[0_0_40px_rgba(37,99,235,0.4)] flex flex-col items-center justify-center backdrop-blur-xl ${ghStats.isNew ? 'border-blue-500/50 bg-blue-600/20' : 'border-violet-500/30 bg-violet-500/10'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${ghStats.isNew ? 'bg-red-500 animate-ping' : 'bg-blue-400 animate-pulse'}`} />
+                          <span className="text-[11px] font-black tracking-[0.2em] text-blue-200 uppercase">SISTEMA 100% GARANTIZADO</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                           <span className="text-sm font-black text-white">{ghStats.version}</span>
-                           <div className="w-px h-3 bg-white/10" />
-                           <span className={`text-sm font-bold ${ghStats.isNew ? 'text-red-500' : 'text-blue-400'}`}>
-                             {ghStats.isNew ? `hace ${ghStats.timeAgo}` : ghStats.lastUpdate}
-                           </span>
+                        <div className="flex items-center gap-5 w-full justify-center border-t border-white/10 pt-2">
+                           <div className="flex flex-col items-center">
+                             <span className="text-[8px] text-white/30 font-black uppercase tracking-widest">VERSIÓN</span>
+                             <span className="text-xl font-black text-white">{ghStats.version}</span>
+                           </div>
+                           <div className="w-px h-6 bg-white/10" />
+                           <div className="flex flex-col items-center">
+                             <span className="text-[8px] text-white/30 font-black uppercase tracking-widest">SUBIDO HACE</span>
+                             <span className={`text-xl font-black ${ghStats.isNew ? 'text-red-500 animate-pulse' : 'text-blue-400'}`}>
+                               {ghStats.isNew ? ghStats.timeAgo : ghStats.lastUpdate}
+                             </span>
+                           </div>
                         </div>
                       </div>
                     </div>
