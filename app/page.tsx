@@ -297,13 +297,13 @@ export default function PublicityLandingPage() {
             {/* GitHub Code Button (Desktop) */}
             <div className="hidden lg:flex items-center gap-3">
               <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_20px_rgba(139,92,246,0.3)]">
-                <Button variant="ghost" className="btn-galaxy-inner text-xs font-black px-6 py-3 text-white/90 hover:text-white border-none rounded-full transition-all uppercase flex items-center gap-2">
-                  <Github className="w-4 h-4 text-rainbow-hover" />
+                <Button variant="ghost" className="btn-galaxy-inner text-xs font-black px-10 py-4 text-white/90 hover:text-white border-none rounded-full transition-all uppercase flex items-center gap-2">
+                  <Github className="w-5 h-5 text-rainbow-hover" />
                   <span className="text-rainbow-hover">VER CÓDIGO</span>
                 </Button>
               </a>
               <a href="#descargas">
-                <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black px-6 py-3 shadow-lg shadow-violet-500/30 border border-violet-400/30 transition-all hover:scale-105">
+                <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black px-8 py-4 shadow-lg shadow-violet-500/30 border border-violet-400/30 transition-all hover:scale-105">
                   DESCARGAR
                 </Button>
               </a>
@@ -438,8 +438,8 @@ export default function PublicityLandingPage() {
                   </Button>
                 </a>
                 <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer" className="p-[1px] rounded-full btn-galaxy group/galaxy transition-all active:scale-95 shadow-[0_0_25px_rgba(139,92,246,0.4)]">
-                  <Button variant="outline" className="btn-galaxy-inner border-none text-white font-black text-base h-15 px-10 uppercase tracking-widest transition-all rounded-full flex items-center gap-3">
-                    <Github className="w-6 h-6 text-rainbow-hover" />
+                  <Button variant="outline" className="btn-galaxy-inner border-none text-white font-black text-lg h-18 px-14 uppercase tracking-widest transition-all rounded-full flex items-center gap-3">
+                    <Github className="w-7 h-7 text-rainbow-hover" />
                     <span className="text-rainbow-hover">VER CÓDIGO</span>
                   </Button>
                 </a>
