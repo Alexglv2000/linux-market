@@ -599,24 +599,30 @@ body.tauri-app aside.fixed {
 .btn-galaxy::after {
   content: "";
   position: absolute;
-  inset: -1px;
+  inset: -1.5px;
   background: conic-gradient(
     from 0deg,
-    transparent 70%,
-    #ff0000 75%, #ffff00 80%, #00ff00 85%, #00ffff 90%, #0000ff 95%, transparent 100%
+    transparent 0deg,
+    transparent 280deg,
+    #3b82f6 300deg,
+    #a855f7 330deg,
+    #ec4899 350deg,
+    transparent 360deg
   );
   border-radius: inherit;
   z-index: -1;
   animation: rainbow-rotate 2s linear infinite;
+  padding: 1px;
 }
 
-/* Máscara para que el fondo galaxia se vea dentro y el borde solo en el contorno */
+/* Máscara interna para el rayo de borde */
 .btn-galaxy-inner {
   position: relative;
   background: #000000;
   border-radius: inherit;
   width: 100%;
   height: 100%;
+  padding: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
