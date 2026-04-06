@@ -41,6 +41,7 @@ const systemRoutes    = require('./server/routes/system.routes')
 // ── Middlewares ────────────────────────────────────────────────────────────
 const { loggerMiddleware } = require('./server/middlewares/logger.middleware')
 const { errorMiddleware }  = require('./server/middlewares/error.middleware')
+const { authMiddleware }   = require('./server/middlewares/auth.middleware')
 
 // ── Database ──────────────────────────────────────────────────────────────
 const { connect } = require('./server/db/index')
@@ -57,7 +58,10 @@ async function bootstrap() {
   app.use(express.json({ limit: '10mb' }))
   app.use(loggerMiddleware)
 
-  // 3. API Routes — all paths identical to original server.js
+  // 3. JWT authentication — validates Bearer token on all routes except public ones
+  app.use(authMiddleware)
+
+  // 4. API Routes — all paths identical to original server.js
   app.use('/api/auth',      authRoutes)
   app.use('/api/products',  productsRoutes)
   app.use('/api/sales',     salesRoutes)

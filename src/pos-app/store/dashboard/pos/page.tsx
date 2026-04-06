@@ -278,7 +278,7 @@ export default function POSPage() {
             </Button>
           )}
         </div>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-center px-6">
               <ShoppingCart className="w-12 h-12 text-muted-foreground/30 mb-3" />
@@ -318,8 +318,8 @@ export default function POSPage() {
               ))}
             </div>
           )}
-        </ScrollArea>
-        <div className="p-4 border-t border-white/10 bg-card/80 space-y-3">
+        </div>
+        <div className="p-4 border-t border-white/10 bg-card/80 space-y-3 shrink-0">
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
             <div className="flex justify-between text-muted-foreground"><span>IVA ({taxRate}%)</span><span>{fmt(tax)}</span></div>
