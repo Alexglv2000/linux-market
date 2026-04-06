@@ -29,6 +29,8 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/login',   // login endpoint — token not yet obtained
   '/api/health',       // health check — no sensitive data
   '/api/events',       // SSE — EventSource cannot set headers
+  '/api/system/info',  // Hardware lock MAC address fetch before login
+  '/api/settings',     // Store settings (logo, branding) fetch before login
 ])
 
 /**

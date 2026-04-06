@@ -1097,6 +1097,55 @@ function passthrough (value) {
 
 /***/ }),
 
+/***/ 715:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/*jshint node:true */
+
+var Buffer = (__nccwpck_require__(181).Buffer); // browserify
+var SlowBuffer = (__nccwpck_require__(181).SlowBuffer);
+
+module.exports = bufferEq;
+
+function bufferEq(a, b) {
+
+  // shortcutting on type is necessary for correctness
+  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
+    return false;
+  }
+
+  // buffer sizes should be well-known information, so despite this
+  // shortcutting, it doesn't leak any information about the *contents* of the
+  // buffers.
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  var c = 0;
+  for (var i = 0; i < a.length; i++) {
+    /*jshint bitwise:false */
+    c |= a[i] ^ b[i]; // XOR
+  }
+  return c === 0;
+}
+
+bufferEq.install = function() {
+  Buffer.prototype.equal = SlowBuffer.prototype.equal = function equal(that) {
+    return bufferEq(this, that);
+  };
+};
+
+var origBufEqual = Buffer.prototype.equal;
+var origSlowBufEqual = SlowBuffer.prototype.equal;
+bufferEq.restore = function() {
+  Buffer.prototype.equal = origBufEqual;
+  SlowBuffer.prototype.equal = origSlowBufEqual;
+};
+
+
+/***/ }),
+
 /***/ 4449:
 /***/ ((module) => {
 
@@ -4164,6 +4213,232 @@ module.exports = desc && typeof desc.get === 'function'
 			return $getPrototypeOf(value == null ? value : $Object(value));
 		}
 		: false;
+
+
+/***/ }),
+
+/***/ 1454:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+var Buffer = (__nccwpck_require__(5249).Buffer);
+
+var getParamBytesForAlg = __nccwpck_require__(883);
+
+var MAX_OCTET = 0x80,
+	CLASS_UNIVERSAL = 0,
+	PRIMITIVE_BIT = 0x20,
+	TAG_SEQ = 0x10,
+	TAG_INT = 0x02,
+	ENCODED_TAG_SEQ = (TAG_SEQ | PRIMITIVE_BIT) | (CLASS_UNIVERSAL << 6),
+	ENCODED_TAG_INT = TAG_INT | (CLASS_UNIVERSAL << 6);
+
+function base64Url(base64) {
+	return base64
+		.replace(/=/g, '')
+		.replace(/\+/g, '-')
+		.replace(/\//g, '_');
+}
+
+function signatureAsBuffer(signature) {
+	if (Buffer.isBuffer(signature)) {
+		return signature;
+	} else if ('string' === typeof signature) {
+		return Buffer.from(signature, 'base64');
+	}
+
+	throw new TypeError('ECDSA signature must be a Base64 string or a Buffer');
+}
+
+function derToJose(signature, alg) {
+	signature = signatureAsBuffer(signature);
+	var paramBytes = getParamBytesForAlg(alg);
+
+	// the DER encoded param should at most be the param size, plus a padding
+	// zero, since due to being a signed integer
+	var maxEncodedParamLength = paramBytes + 1;
+
+	var inputLength = signature.length;
+
+	var offset = 0;
+	if (signature[offset++] !== ENCODED_TAG_SEQ) {
+		throw new Error('Could not find expected "seq"');
+	}
+
+	var seqLength = signature[offset++];
+	if (seqLength === (MAX_OCTET | 1)) {
+		seqLength = signature[offset++];
+	}
+
+	if (inputLength - offset < seqLength) {
+		throw new Error('"seq" specified length of "' + seqLength + '", only "' + (inputLength - offset) + '" remaining');
+	}
+
+	if (signature[offset++] !== ENCODED_TAG_INT) {
+		throw new Error('Could not find expected "int" for "r"');
+	}
+
+	var rLength = signature[offset++];
+
+	if (inputLength - offset - 2 < rLength) {
+		throw new Error('"r" specified length of "' + rLength + '", only "' + (inputLength - offset - 2) + '" available');
+	}
+
+	if (maxEncodedParamLength < rLength) {
+		throw new Error('"r" specified length of "' + rLength + '", max of "' + maxEncodedParamLength + '" is acceptable');
+	}
+
+	var rOffset = offset;
+	offset += rLength;
+
+	if (signature[offset++] !== ENCODED_TAG_INT) {
+		throw new Error('Could not find expected "int" for "s"');
+	}
+
+	var sLength = signature[offset++];
+
+	if (inputLength - offset !== sLength) {
+		throw new Error('"s" specified length of "' + sLength + '", expected "' + (inputLength - offset) + '"');
+	}
+
+	if (maxEncodedParamLength < sLength) {
+		throw new Error('"s" specified length of "' + sLength + '", max of "' + maxEncodedParamLength + '" is acceptable');
+	}
+
+	var sOffset = offset;
+	offset += sLength;
+
+	if (offset !== inputLength) {
+		throw new Error('Expected to consume entire buffer, but "' + (inputLength - offset) + '" bytes remain');
+	}
+
+	var rPadding = paramBytes - rLength,
+		sPadding = paramBytes - sLength;
+
+	var dst = Buffer.allocUnsafe(rPadding + rLength + sPadding + sLength);
+
+	for (offset = 0; offset < rPadding; ++offset) {
+		dst[offset] = 0;
+	}
+	signature.copy(dst, offset, rOffset + Math.max(-rPadding, 0), rOffset + rLength);
+
+	offset = paramBytes;
+
+	for (var o = offset; offset < o + sPadding; ++offset) {
+		dst[offset] = 0;
+	}
+	signature.copy(dst, offset, sOffset + Math.max(-sPadding, 0), sOffset + sLength);
+
+	dst = dst.toString('base64');
+	dst = base64Url(dst);
+
+	return dst;
+}
+
+function countPadding(buf, start, stop) {
+	var padding = 0;
+	while (start + padding < stop && buf[start + padding] === 0) {
+		++padding;
+	}
+
+	var needsSign = buf[start + padding] >= MAX_OCTET;
+	if (needsSign) {
+		--padding;
+	}
+
+	return padding;
+}
+
+function joseToDer(signature, alg) {
+	signature = signatureAsBuffer(signature);
+	var paramBytes = getParamBytesForAlg(alg);
+
+	var signatureBytes = signature.length;
+	if (signatureBytes !== paramBytes * 2) {
+		throw new TypeError('"' + alg + '" signatures must be "' + paramBytes * 2 + '" bytes, saw "' + signatureBytes + '"');
+	}
+
+	var rPadding = countPadding(signature, 0, paramBytes);
+	var sPadding = countPadding(signature, paramBytes, signature.length);
+	var rLength = paramBytes - rPadding;
+	var sLength = paramBytes - sPadding;
+
+	var rsBytes = 1 + 1 + rLength + 1 + 1 + sLength;
+
+	var shortLength = rsBytes < MAX_OCTET;
+
+	var dst = Buffer.allocUnsafe((shortLength ? 2 : 3) + rsBytes);
+
+	var offset = 0;
+	dst[offset++] = ENCODED_TAG_SEQ;
+	if (shortLength) {
+		// Bit 8 has value "0"
+		// bits 7-1 give the length.
+		dst[offset++] = rsBytes;
+	} else {
+		// Bit 8 of first octet has value "1"
+		// bits 7-1 give the number of additional length octets.
+		dst[offset++] = MAX_OCTET	| 1;
+		// length, base 256
+		dst[offset++] = rsBytes & 0xff;
+	}
+	dst[offset++] = ENCODED_TAG_INT;
+	dst[offset++] = rLength;
+	if (rPadding < 0) {
+		dst[offset++] = 0;
+		offset += signature.copy(dst, offset, 0, paramBytes);
+	} else {
+		offset += signature.copy(dst, offset, rPadding, paramBytes);
+	}
+	dst[offset++] = ENCODED_TAG_INT;
+	dst[offset++] = sLength;
+	if (sPadding < 0) {
+		dst[offset++] = 0;
+		signature.copy(dst, offset, paramBytes);
+	} else {
+		signature.copy(dst, offset, paramBytes + sPadding);
+	}
+
+	return dst;
+}
+
+module.exports = {
+	derToJose: derToJose,
+	joseToDer: joseToDer
+};
+
+
+/***/ }),
+
+/***/ 883:
+/***/ ((module) => {
+
+"use strict";
+
+
+function getParamSize(keySize) {
+	var result = ((keySize / 8) | 0) + (keySize % 8 === 0 ? 0 : 1);
+	return result;
+}
+
+var paramBytesForAlg = {
+	ES256: getParamSize(256),
+	ES384: getParamSize(384),
+	ES512: getParamSize(521)
+};
+
+function getParamBytesForAlg(alg) {
+	var paramBytes = paramBytesForAlg[alg];
+	if (paramBytes) {
+		return paramBytes;
+	}
+
+	throw new Error('Unknown algorithm "' + alg + '"');
+}
+
+module.exports = getParamBytesForAlg;
 
 
 /***/ }),
@@ -12679,6 +12954,3113 @@ function isPromise(obj) {
 
 /***/ }),
 
+/***/ 3499:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var jws = __nccwpck_require__(3922);
+
+module.exports = function (jwt, options) {
+  options = options || {};
+  var decoded = jws.decode(jwt, options);
+  if (!decoded) { return null; }
+  var payload = decoded.payload;
+
+  //try parse the payload
+  if(typeof payload === 'string') {
+    try {
+      var obj = JSON.parse(payload);
+      if(obj !== null && typeof obj === 'object') {
+        payload = obj;
+      }
+    } catch (e) { }
+  }
+
+  //return header if `complete` option is enabled.  header includes claims
+  //such as `kid` and `alg` used to select the key within a JWKS needed to
+  //verify the signature
+  if (options.complete === true) {
+    return {
+      header: decoded.header,
+      payload: payload,
+      signature: decoded.signature
+    };
+  }
+  return payload;
+};
+
+
+/***/ }),
+
+/***/ 8457:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+module.exports = {
+  decode: __nccwpck_require__(3499),
+  verify: __nccwpck_require__(5728),
+  sign: __nccwpck_require__(8724),
+  JsonWebTokenError: __nccwpck_require__(9511),
+  NotBeforeError: __nccwpck_require__(4817),
+  TokenExpiredError: __nccwpck_require__(8013),
+};
+
+
+/***/ }),
+
+/***/ 9511:
+/***/ ((module) => {
+
+var JsonWebTokenError = function (message, error) {
+  Error.call(this, message);
+  if(Error.captureStackTrace) {
+    Error.captureStackTrace(this, this.constructor);
+  }
+  this.name = 'JsonWebTokenError';
+  this.message = message;
+  if (error) this.inner = error;
+};
+
+JsonWebTokenError.prototype = Object.create(Error.prototype);
+JsonWebTokenError.prototype.constructor = JsonWebTokenError;
+
+module.exports = JsonWebTokenError;
+
+
+/***/ }),
+
+/***/ 4817:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var JsonWebTokenError = __nccwpck_require__(9511);
+
+var NotBeforeError = function (message, date) {
+  JsonWebTokenError.call(this, message);
+  this.name = 'NotBeforeError';
+  this.date = date;
+};
+
+NotBeforeError.prototype = Object.create(JsonWebTokenError.prototype);
+
+NotBeforeError.prototype.constructor = NotBeforeError;
+
+module.exports = NotBeforeError;
+
+/***/ }),
+
+/***/ 8013:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var JsonWebTokenError = __nccwpck_require__(9511);
+
+var TokenExpiredError = function (message, expiredAt) {
+  JsonWebTokenError.call(this, message);
+  this.name = 'TokenExpiredError';
+  this.expiredAt = expiredAt;
+};
+
+TokenExpiredError.prototype = Object.create(JsonWebTokenError.prototype);
+
+TokenExpiredError.prototype.constructor = TokenExpiredError;
+
+module.exports = TokenExpiredError;
+
+/***/ }),
+
+/***/ 6988:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const semver = __nccwpck_require__(9419);
+
+module.exports = semver.satisfies(process.version, '>=15.7.0');
+
+
+/***/ }),
+
+/***/ 1344:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var semver = __nccwpck_require__(9419);
+
+module.exports = semver.satisfies(process.version, '^6.12.0 || >=8.0.0');
+
+
+/***/ }),
+
+/***/ 1202:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const semver = __nccwpck_require__(9419);
+
+module.exports = semver.satisfies(process.version, '>=16.9.0');
+
+
+/***/ }),
+
+/***/ 2692:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var ms = __nccwpck_require__(6647);
+
+module.exports = function (time, iat) {
+  var timestamp = iat || Math.floor(Date.now() / 1000);
+
+  if (typeof time === 'string') {
+    var milliseconds = ms(time);
+    if (typeof milliseconds === 'undefined') {
+      return;
+    }
+    return Math.floor(timestamp + milliseconds / 1000);
+  } else if (typeof time === 'number') {
+    return timestamp + time;
+  } else {
+    return;
+  }
+
+};
+
+/***/ }),
+
+/***/ 3578:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const ASYMMETRIC_KEY_DETAILS_SUPPORTED = __nccwpck_require__(6988);
+const RSA_PSS_KEY_DETAILS_SUPPORTED = __nccwpck_require__(1202);
+
+const allowedAlgorithmsForKeys = {
+  'ec': ['ES256', 'ES384', 'ES512'],
+  'rsa': ['RS256', 'PS256', 'RS384', 'PS384', 'RS512', 'PS512'],
+  'rsa-pss': ['PS256', 'PS384', 'PS512']
+};
+
+const allowedCurves = {
+  ES256: 'prime256v1',
+  ES384: 'secp384r1',
+  ES512: 'secp521r1',
+};
+
+module.exports = function(algorithm, key) {
+  if (!algorithm || !key) return;
+
+  const keyType = key.asymmetricKeyType;
+  if (!keyType) return;
+
+  const allowedAlgorithms = allowedAlgorithmsForKeys[keyType];
+
+  if (!allowedAlgorithms) {
+    throw new Error(`Unknown key type "${keyType}".`);
+  }
+
+  if (!allowedAlgorithms.includes(algorithm)) {
+    throw new Error(`"alg" parameter for "${keyType}" key type must be one of: ${allowedAlgorithms.join(', ')}.`)
+  }
+
+  /*
+   * Ignore the next block from test coverage because it gets executed
+   * conditionally depending on the Node version. Not ignoring it would
+   * prevent us from reaching the target % of coverage for versions of
+   * Node under 15.7.0.
+   */
+  /* istanbul ignore next */
+  if (ASYMMETRIC_KEY_DETAILS_SUPPORTED) {
+    switch (keyType) {
+    case 'ec':
+      const keyCurve = key.asymmetricKeyDetails.namedCurve;
+      const allowedCurve = allowedCurves[algorithm];
+
+      if (keyCurve !== allowedCurve) {
+        throw new Error(`"alg" parameter "${algorithm}" requires curve "${allowedCurve}".`);
+      }
+      break;
+
+    case 'rsa-pss':
+      if (RSA_PSS_KEY_DETAILS_SUPPORTED) {
+        const length = parseInt(algorithm.slice(-3), 10);
+        const { hashAlgorithm, mgf1HashAlgorithm, saltLength } = key.asymmetricKeyDetails;
+
+        if (hashAlgorithm !== `sha${length}` || mgf1HashAlgorithm !== hashAlgorithm) {
+          throw new Error(`Invalid key for this operation, its RSA-PSS parameters do not meet the requirements of "alg" ${algorithm}.`);
+        }
+
+        if (saltLength !== undefined && saltLength > length >> 3) {
+          throw new Error(`Invalid key for this operation, its RSA-PSS parameter saltLength does not meet the requirements of "alg" ${algorithm}.`)
+        }
+      }
+      break;
+    }
+  }
+}
+
+
+/***/ }),
+
+/***/ 8724:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const timespan = __nccwpck_require__(2692);
+const PS_SUPPORTED = __nccwpck_require__(1344);
+const validateAsymmetricKey = __nccwpck_require__(3578);
+const jws = __nccwpck_require__(3922);
+const includes = __nccwpck_require__(5252);
+const isBoolean = __nccwpck_require__(2771);
+const isInteger = __nccwpck_require__(4367);
+const isNumber = __nccwpck_require__(5011);
+const isPlainObject = __nccwpck_require__(5341);
+const isString = __nccwpck_require__(5250);
+const once = __nccwpck_require__(3839);
+const { KeyObject, createSecretKey, createPrivateKey } = __nccwpck_require__(6982)
+
+const SUPPORTED_ALGS = ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'HS256', 'HS384', 'HS512', 'none'];
+if (PS_SUPPORTED) {
+  SUPPORTED_ALGS.splice(3, 0, 'PS256', 'PS384', 'PS512');
+}
+
+const sign_options_schema = {
+  expiresIn: { isValid: function(value) { return isInteger(value) || (isString(value) && value); }, message: '"expiresIn" should be a number of seconds or string representing a timespan' },
+  notBefore: { isValid: function(value) { return isInteger(value) || (isString(value) && value); }, message: '"notBefore" should be a number of seconds or string representing a timespan' },
+  audience: { isValid: function(value) { return isString(value) || Array.isArray(value); }, message: '"audience" must be a string or array' },
+  algorithm: { isValid: includes.bind(null, SUPPORTED_ALGS), message: '"algorithm" must be a valid string enum value' },
+  header: { isValid: isPlainObject, message: '"header" must be an object' },
+  encoding: { isValid: isString, message: '"encoding" must be a string' },
+  issuer: { isValid: isString, message: '"issuer" must be a string' },
+  subject: { isValid: isString, message: '"subject" must be a string' },
+  jwtid: { isValid: isString, message: '"jwtid" must be a string' },
+  noTimestamp: { isValid: isBoolean, message: '"noTimestamp" must be a boolean' },
+  keyid: { isValid: isString, message: '"keyid" must be a string' },
+  mutatePayload: { isValid: isBoolean, message: '"mutatePayload" must be a boolean' },
+  allowInsecureKeySizes: { isValid: isBoolean, message: '"allowInsecureKeySizes" must be a boolean'},
+  allowInvalidAsymmetricKeyTypes: { isValid: isBoolean, message: '"allowInvalidAsymmetricKeyTypes" must be a boolean'}
+};
+
+const registered_claims_schema = {
+  iat: { isValid: isNumber, message: '"iat" should be a number of seconds' },
+  exp: { isValid: isNumber, message: '"exp" should be a number of seconds' },
+  nbf: { isValid: isNumber, message: '"nbf" should be a number of seconds' }
+};
+
+function validate(schema, allowUnknown, object, parameterName) {
+  if (!isPlainObject(object)) {
+    throw new Error('Expected "' + parameterName + '" to be a plain object.');
+  }
+  Object.keys(object)
+    .forEach(function(key) {
+      const validator = schema[key];
+      if (!validator) {
+        if (!allowUnknown) {
+          throw new Error('"' + key + '" is not allowed in "' + parameterName + '"');
+        }
+        return;
+      }
+      if (!validator.isValid(object[key])) {
+        throw new Error(validator.message);
+      }
+    });
+}
+
+function validateOptions(options) {
+  return validate(sign_options_schema, false, options, 'options');
+}
+
+function validatePayload(payload) {
+  return validate(registered_claims_schema, true, payload, 'payload');
+}
+
+const options_to_payload = {
+  'audience': 'aud',
+  'issuer': 'iss',
+  'subject': 'sub',
+  'jwtid': 'jti'
+};
+
+const options_for_objects = [
+  'expiresIn',
+  'notBefore',
+  'noTimestamp',
+  'audience',
+  'issuer',
+  'subject',
+  'jwtid',
+];
+
+module.exports = function (payload, secretOrPrivateKey, options, callback) {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  } else {
+    options = options || {};
+  }
+
+  const isObjectPayload = typeof payload === 'object' &&
+                        !Buffer.isBuffer(payload);
+
+  const header = Object.assign({
+    alg: options.algorithm || 'HS256',
+    typ: isObjectPayload ? 'JWT' : undefined,
+    kid: options.keyid
+  }, options.header);
+
+  function failure(err) {
+    if (callback) {
+      return callback(err);
+    }
+    throw err;
+  }
+
+  if (!secretOrPrivateKey && options.algorithm !== 'none') {
+    return failure(new Error('secretOrPrivateKey must have a value'));
+  }
+
+  if (secretOrPrivateKey != null && !(secretOrPrivateKey instanceof KeyObject)) {
+    try {
+      secretOrPrivateKey = createPrivateKey(secretOrPrivateKey)
+    } catch (_) {
+      try {
+        secretOrPrivateKey = createSecretKey(typeof secretOrPrivateKey === 'string' ? Buffer.from(secretOrPrivateKey) : secretOrPrivateKey)
+      } catch (_) {
+        return failure(new Error('secretOrPrivateKey is not valid key material'));
+      }
+    }
+  }
+
+  if (header.alg.startsWith('HS') && secretOrPrivateKey.type !== 'secret') {
+    return failure(new Error((`secretOrPrivateKey must be a symmetric key when using ${header.alg}`)))
+  } else if (/^(?:RS|PS|ES)/.test(header.alg)) {
+    if (secretOrPrivateKey.type !== 'private') {
+      return failure(new Error((`secretOrPrivateKey must be an asymmetric key when using ${header.alg}`)))
+    }
+    if (!options.allowInsecureKeySizes &&
+      !header.alg.startsWith('ES') &&
+      secretOrPrivateKey.asymmetricKeyDetails !== undefined && //KeyObject.asymmetricKeyDetails is supported in Node 15+
+      secretOrPrivateKey.asymmetricKeyDetails.modulusLength < 2048) {
+      return failure(new Error(`secretOrPrivateKey has a minimum key size of 2048 bits for ${header.alg}`));
+    }
+  }
+
+  if (typeof payload === 'undefined') {
+    return failure(new Error('payload is required'));
+  } else if (isObjectPayload) {
+    try {
+      validatePayload(payload);
+    }
+    catch (error) {
+      return failure(error);
+    }
+    if (!options.mutatePayload) {
+      payload = Object.assign({},payload);
+    }
+  } else {
+    const invalid_options = options_for_objects.filter(function (opt) {
+      return typeof options[opt] !== 'undefined';
+    });
+
+    if (invalid_options.length > 0) {
+      return failure(new Error('invalid ' + invalid_options.join(',') + ' option for ' + (typeof payload ) + ' payload'));
+    }
+  }
+
+  if (typeof payload.exp !== 'undefined' && typeof options.expiresIn !== 'undefined') {
+    return failure(new Error('Bad "options.expiresIn" option the payload already has an "exp" property.'));
+  }
+
+  if (typeof payload.nbf !== 'undefined' && typeof options.notBefore !== 'undefined') {
+    return failure(new Error('Bad "options.notBefore" option the payload already has an "nbf" property.'));
+  }
+
+  try {
+    validateOptions(options);
+  }
+  catch (error) {
+    return failure(error);
+  }
+
+  if (!options.allowInvalidAsymmetricKeyTypes) {
+    try {
+      validateAsymmetricKey(header.alg, secretOrPrivateKey);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  const timestamp = payload.iat || Math.floor(Date.now() / 1000);
+
+  if (options.noTimestamp) {
+    delete payload.iat;
+  } else if (isObjectPayload) {
+    payload.iat = timestamp;
+  }
+
+  if (typeof options.notBefore !== 'undefined') {
+    try {
+      payload.nbf = timespan(options.notBefore, timestamp);
+    }
+    catch (err) {
+      return failure(err);
+    }
+    if (typeof payload.nbf === 'undefined') {
+      return failure(new Error('"notBefore" should be a number of seconds or string representing a timespan eg: "1d", "20h", 60'));
+    }
+  }
+
+  if (typeof options.expiresIn !== 'undefined' && typeof payload === 'object') {
+    try {
+      payload.exp = timespan(options.expiresIn, timestamp);
+    }
+    catch (err) {
+      return failure(err);
+    }
+    if (typeof payload.exp === 'undefined') {
+      return failure(new Error('"expiresIn" should be a number of seconds or string representing a timespan eg: "1d", "20h", 60'));
+    }
+  }
+
+  Object.keys(options_to_payload).forEach(function (key) {
+    const claim = options_to_payload[key];
+    if (typeof options[key] !== 'undefined') {
+      if (typeof payload[claim] !== 'undefined') {
+        return failure(new Error('Bad "options.' + key + '" option. The payload already has an "' + claim + '" property.'));
+      }
+      payload[claim] = options[key];
+    }
+  });
+
+  const encoding = options.encoding || 'utf8';
+
+  if (typeof callback === 'function') {
+    callback = callback && once(callback);
+
+    jws.createSign({
+      header: header,
+      privateKey: secretOrPrivateKey,
+      payload: payload,
+      encoding: encoding
+    }).once('error', callback)
+      .once('done', function (signature) {
+        // TODO: Remove in favor of the modulus length check before signing once node 15+ is the minimum supported version
+        if(!options.allowInsecureKeySizes && /^(?:RS|PS)/.test(header.alg) && signature.length < 256) {
+          return callback(new Error(`secretOrPrivateKey has a minimum key size of 2048 bits for ${header.alg}`))
+        }
+        callback(null, signature);
+      });
+  } else {
+    let signature = jws.sign({header: header, payload: payload, secret: secretOrPrivateKey, encoding: encoding});
+    // TODO: Remove in favor of the modulus length check before signing once node 15+ is the minimum supported version
+    if(!options.allowInsecureKeySizes && /^(?:RS|PS)/.test(header.alg) && signature.length < 256) {
+      throw new Error(`secretOrPrivateKey has a minimum key size of 2048 bits for ${header.alg}`)
+    }
+    return signature
+  }
+};
+
+
+/***/ }),
+
+/***/ 5728:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const JsonWebTokenError = __nccwpck_require__(9511);
+const NotBeforeError = __nccwpck_require__(4817);
+const TokenExpiredError = __nccwpck_require__(8013);
+const decode = __nccwpck_require__(3499);
+const timespan = __nccwpck_require__(2692);
+const validateAsymmetricKey = __nccwpck_require__(3578);
+const PS_SUPPORTED = __nccwpck_require__(1344);
+const jws = __nccwpck_require__(3922);
+const {KeyObject, createSecretKey, createPublicKey} = __nccwpck_require__(6982);
+
+const PUB_KEY_ALGS = ['RS256', 'RS384', 'RS512'];
+const EC_KEY_ALGS = ['ES256', 'ES384', 'ES512'];
+const RSA_KEY_ALGS = ['RS256', 'RS384', 'RS512'];
+const HS_ALGS = ['HS256', 'HS384', 'HS512'];
+
+if (PS_SUPPORTED) {
+  PUB_KEY_ALGS.splice(PUB_KEY_ALGS.length, 0, 'PS256', 'PS384', 'PS512');
+  RSA_KEY_ALGS.splice(RSA_KEY_ALGS.length, 0, 'PS256', 'PS384', 'PS512');
+}
+
+module.exports = function (jwtString, secretOrPublicKey, options, callback) {
+  if ((typeof options === 'function') && !callback) {
+    callback = options;
+    options = {};
+  }
+
+  if (!options) {
+    options = {};
+  }
+
+  //clone this object since we are going to mutate it.
+  options = Object.assign({}, options);
+
+  let done;
+
+  if (callback) {
+    done = callback;
+  } else {
+    done = function(err, data) {
+      if (err) throw err;
+      return data;
+    };
+  }
+
+  if (options.clockTimestamp && typeof options.clockTimestamp !== 'number') {
+    return done(new JsonWebTokenError('clockTimestamp must be a number'));
+  }
+
+  if (options.nonce !== undefined && (typeof options.nonce !== 'string' || options.nonce.trim() === '')) {
+    return done(new JsonWebTokenError('nonce must be a non-empty string'));
+  }
+
+  if (options.allowInvalidAsymmetricKeyTypes !== undefined && typeof options.allowInvalidAsymmetricKeyTypes !== 'boolean') {
+    return done(new JsonWebTokenError('allowInvalidAsymmetricKeyTypes must be a boolean'));
+  }
+
+  const clockTimestamp = options.clockTimestamp || Math.floor(Date.now() / 1000);
+
+  if (!jwtString){
+    return done(new JsonWebTokenError('jwt must be provided'));
+  }
+
+  if (typeof jwtString !== 'string') {
+    return done(new JsonWebTokenError('jwt must be a string'));
+  }
+
+  const parts = jwtString.split('.');
+
+  if (parts.length !== 3){
+    return done(new JsonWebTokenError('jwt malformed'));
+  }
+
+  let decodedToken;
+
+  try {
+    decodedToken = decode(jwtString, { complete: true });
+  } catch(err) {
+    return done(err);
+  }
+
+  if (!decodedToken) {
+    return done(new JsonWebTokenError('invalid token'));
+  }
+
+  const header = decodedToken.header;
+  let getSecret;
+
+  if(typeof secretOrPublicKey === 'function') {
+    if(!callback) {
+      return done(new JsonWebTokenError('verify must be called asynchronous if secret or public key is provided as a callback'));
+    }
+
+    getSecret = secretOrPublicKey;
+  }
+  else {
+    getSecret = function(header, secretCallback) {
+      return secretCallback(null, secretOrPublicKey);
+    };
+  }
+
+  return getSecret(header, function(err, secretOrPublicKey) {
+    if(err) {
+      return done(new JsonWebTokenError('error in secret or public key callback: ' + err.message));
+    }
+
+    const hasSignature = parts[2].trim() !== '';
+
+    if (!hasSignature && secretOrPublicKey){
+      return done(new JsonWebTokenError('jwt signature is required'));
+    }
+
+    if (hasSignature && !secretOrPublicKey) {
+      return done(new JsonWebTokenError('secret or public key must be provided'));
+    }
+
+    if (!hasSignature && !options.algorithms) {
+      return done(new JsonWebTokenError('please specify "none" in "algorithms" to verify unsigned tokens'));
+    }
+
+    if (secretOrPublicKey != null && !(secretOrPublicKey instanceof KeyObject)) {
+      try {
+        secretOrPublicKey = createPublicKey(secretOrPublicKey);
+      } catch (_) {
+        try {
+          secretOrPublicKey = createSecretKey(typeof secretOrPublicKey === 'string' ? Buffer.from(secretOrPublicKey) : secretOrPublicKey);
+        } catch (_) {
+          return done(new JsonWebTokenError('secretOrPublicKey is not valid key material'))
+        }
+      }
+    }
+
+    if (!options.algorithms) {
+      if (secretOrPublicKey.type === 'secret') {
+        options.algorithms = HS_ALGS;
+      } else if (['rsa', 'rsa-pss'].includes(secretOrPublicKey.asymmetricKeyType)) {
+        options.algorithms = RSA_KEY_ALGS
+      } else if (secretOrPublicKey.asymmetricKeyType === 'ec') {
+        options.algorithms = EC_KEY_ALGS
+      } else {
+        options.algorithms = PUB_KEY_ALGS
+      }
+    }
+
+    if (options.algorithms.indexOf(decodedToken.header.alg) === -1) {
+      return done(new JsonWebTokenError('invalid algorithm'));
+    }
+
+    if (header.alg.startsWith('HS') && secretOrPublicKey.type !== 'secret') {
+      return done(new JsonWebTokenError((`secretOrPublicKey must be a symmetric key when using ${header.alg}`)))
+    } else if (/^(?:RS|PS|ES)/.test(header.alg) && secretOrPublicKey.type !== 'public') {
+      return done(new JsonWebTokenError((`secretOrPublicKey must be an asymmetric key when using ${header.alg}`)))
+    }
+
+    if (!options.allowInvalidAsymmetricKeyTypes) {
+      try {
+        validateAsymmetricKey(header.alg, secretOrPublicKey);
+      } catch (e) {
+        return done(e);
+      }
+    }
+
+    let valid;
+
+    try {
+      valid = jws.verify(jwtString, decodedToken.header.alg, secretOrPublicKey);
+    } catch (e) {
+      return done(e);
+    }
+
+    if (!valid) {
+      return done(new JsonWebTokenError('invalid signature'));
+    }
+
+    const payload = decodedToken.payload;
+
+    if (typeof payload.nbf !== 'undefined' && !options.ignoreNotBefore) {
+      if (typeof payload.nbf !== 'number') {
+        return done(new JsonWebTokenError('invalid nbf value'));
+      }
+      if (payload.nbf > clockTimestamp + (options.clockTolerance || 0)) {
+        return done(new NotBeforeError('jwt not active', new Date(payload.nbf * 1000)));
+      }
+    }
+
+    if (typeof payload.exp !== 'undefined' && !options.ignoreExpiration) {
+      if (typeof payload.exp !== 'number') {
+        return done(new JsonWebTokenError('invalid exp value'));
+      }
+      if (clockTimestamp >= payload.exp + (options.clockTolerance || 0)) {
+        return done(new TokenExpiredError('jwt expired', new Date(payload.exp * 1000)));
+      }
+    }
+
+    if (options.audience) {
+      const audiences = Array.isArray(options.audience) ? options.audience : [options.audience];
+      const target = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+
+      const match = target.some(function (targetAudience) {
+        return audiences.some(function (audience) {
+          return audience instanceof RegExp ? audience.test(targetAudience) : audience === targetAudience;
+        });
+      });
+
+      if (!match) {
+        return done(new JsonWebTokenError('jwt audience invalid. expected: ' + audiences.join(' or ')));
+      }
+    }
+
+    if (options.issuer) {
+      const invalid_issuer =
+              (typeof options.issuer === 'string' && payload.iss !== options.issuer) ||
+              (Array.isArray(options.issuer) && options.issuer.indexOf(payload.iss) === -1);
+
+      if (invalid_issuer) {
+        return done(new JsonWebTokenError('jwt issuer invalid. expected: ' + options.issuer));
+      }
+    }
+
+    if (options.subject) {
+      if (payload.sub !== options.subject) {
+        return done(new JsonWebTokenError('jwt subject invalid. expected: ' + options.subject));
+      }
+    }
+
+    if (options.jwtid) {
+      if (payload.jti !== options.jwtid) {
+        return done(new JsonWebTokenError('jwt jwtid invalid. expected: ' + options.jwtid));
+      }
+    }
+
+    if (options.nonce) {
+      if (payload.nonce !== options.nonce) {
+        return done(new JsonWebTokenError('jwt nonce invalid. expected: ' + options.nonce));
+      }
+    }
+
+    if (options.maxAge) {
+      if (typeof payload.iat !== 'number') {
+        return done(new JsonWebTokenError('iat required when maxAge is specified'));
+      }
+
+      const maxAgeTimestamp = timespan(options.maxAge, payload.iat);
+      if (typeof maxAgeTimestamp === 'undefined') {
+        return done(new JsonWebTokenError('"maxAge" should be a number of seconds or string representing a timespan eg: "1d", "20h", 60'));
+      }
+      if (clockTimestamp >= maxAgeTimestamp + (options.clockTolerance || 0)) {
+        return done(new TokenExpiredError('maxAge exceeded', new Date(maxAgeTimestamp * 1000)));
+      }
+    }
+
+    if (options.complete === true) {
+      const signature = decodedToken.signature;
+
+      return done(null, {
+        header: header,
+        payload: payload,
+        signature: signature
+      });
+    }
+
+    return done(null, payload);
+  });
+};
+
+
+/***/ }),
+
+/***/ 6308:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var Buffer = (__nccwpck_require__(5249).Buffer);
+var crypto = __nccwpck_require__(6982);
+var formatEcdsa = __nccwpck_require__(1454);
+var util = __nccwpck_require__(9023);
+
+var MSG_INVALID_ALGORITHM = '"%s" is not a valid algorithm.\n  Supported algorithms are:\n  "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512" and "none".'
+var MSG_INVALID_SECRET = 'secret must be a string or buffer';
+var MSG_INVALID_VERIFIER_KEY = 'key must be a string or a buffer';
+var MSG_INVALID_SIGNER_KEY = 'key must be a string, a buffer or an object';
+
+var supportsKeyObjects = typeof crypto.createPublicKey === 'function';
+if (supportsKeyObjects) {
+  MSG_INVALID_VERIFIER_KEY += ' or a KeyObject';
+  MSG_INVALID_SECRET += 'or a KeyObject';
+}
+
+function checkIsPublicKey(key) {
+  if (Buffer.isBuffer(key)) {
+    return;
+  }
+
+  if (typeof key === 'string') {
+    return;
+  }
+
+  if (!supportsKeyObjects) {
+    throw typeError(MSG_INVALID_VERIFIER_KEY);
+  }
+
+  if (typeof key !== 'object') {
+    throw typeError(MSG_INVALID_VERIFIER_KEY);
+  }
+
+  if (typeof key.type !== 'string') {
+    throw typeError(MSG_INVALID_VERIFIER_KEY);
+  }
+
+  if (typeof key.asymmetricKeyType !== 'string') {
+    throw typeError(MSG_INVALID_VERIFIER_KEY);
+  }
+
+  if (typeof key.export !== 'function') {
+    throw typeError(MSG_INVALID_VERIFIER_KEY);
+  }
+};
+
+function checkIsPrivateKey(key) {
+  if (Buffer.isBuffer(key)) {
+    return;
+  }
+
+  if (typeof key === 'string') {
+    return;
+  }
+
+  if (typeof key === 'object') {
+    return;
+  }
+
+  throw typeError(MSG_INVALID_SIGNER_KEY);
+};
+
+function checkIsSecretKey(key) {
+  if (Buffer.isBuffer(key)) {
+    return;
+  }
+
+  if (typeof key === 'string') {
+    return key;
+  }
+
+  if (!supportsKeyObjects) {
+    throw typeError(MSG_INVALID_SECRET);
+  }
+
+  if (typeof key !== 'object') {
+    throw typeError(MSG_INVALID_SECRET);
+  }
+
+  if (key.type !== 'secret') {
+    throw typeError(MSG_INVALID_SECRET);
+  }
+
+  if (typeof key.export !== 'function') {
+    throw typeError(MSG_INVALID_SECRET);
+  }
+}
+
+function fromBase64(base64) {
+  return base64
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function toBase64(base64url) {
+  base64url = base64url.toString();
+
+  var padding = 4 - base64url.length % 4;
+  if (padding !== 4) {
+    for (var i = 0; i < padding; ++i) {
+      base64url += '=';
+    }
+  }
+
+  return base64url
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+}
+
+function typeError(template) {
+  var args = [].slice.call(arguments, 1);
+  var errMsg = util.format.bind(util, template).apply(null, args);
+  return new TypeError(errMsg);
+}
+
+function bufferOrString(obj) {
+  return Buffer.isBuffer(obj) || typeof obj === 'string';
+}
+
+function normalizeInput(thing) {
+  if (!bufferOrString(thing))
+    thing = JSON.stringify(thing);
+  return thing;
+}
+
+function createHmacSigner(bits) {
+  return function sign(thing, secret) {
+    checkIsSecretKey(secret);
+    thing = normalizeInput(thing);
+    var hmac = crypto.createHmac('sha' + bits, secret);
+    var sig = (hmac.update(thing), hmac.digest('base64'))
+    return fromBase64(sig);
+  }
+}
+
+var bufferEqual;
+var timingSafeEqual = 'timingSafeEqual' in crypto ? function timingSafeEqual(a, b) {
+  if (a.byteLength !== b.byteLength) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(a, b)
+} : function timingSafeEqual(a, b) {
+  if (!bufferEqual) {
+    bufferEqual = __nccwpck_require__(715);
+  }
+
+  return bufferEqual(a, b)
+}
+
+function createHmacVerifier(bits) {
+  return function verify(thing, signature, secret) {
+    var computedSig = createHmacSigner(bits)(thing, secret);
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(computedSig));
+  }
+}
+
+function createKeySigner(bits) {
+ return function sign(thing, privateKey) {
+    checkIsPrivateKey(privateKey);
+    thing = normalizeInput(thing);
+    // Even though we are specifying "RSA" here, this works with ECDSA
+    // keys as well.
+    var signer = crypto.createSign('RSA-SHA' + bits);
+    var sig = (signer.update(thing), signer.sign(privateKey, 'base64'));
+    return fromBase64(sig);
+  }
+}
+
+function createKeyVerifier(bits) {
+  return function verify(thing, signature, publicKey) {
+    checkIsPublicKey(publicKey);
+    thing = normalizeInput(thing);
+    signature = toBase64(signature);
+    var verifier = crypto.createVerify('RSA-SHA' + bits);
+    verifier.update(thing);
+    return verifier.verify(publicKey, signature, 'base64');
+  }
+}
+
+function createPSSKeySigner(bits) {
+  return function sign(thing, privateKey) {
+    checkIsPrivateKey(privateKey);
+    thing = normalizeInput(thing);
+    var signer = crypto.createSign('RSA-SHA' + bits);
+    var sig = (signer.update(thing), signer.sign({
+      key: privateKey,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+    }, 'base64'));
+    return fromBase64(sig);
+  }
+}
+
+function createPSSKeyVerifier(bits) {
+  return function verify(thing, signature, publicKey) {
+    checkIsPublicKey(publicKey);
+    thing = normalizeInput(thing);
+    signature = toBase64(signature);
+    var verifier = crypto.createVerify('RSA-SHA' + bits);
+    verifier.update(thing);
+    return verifier.verify({
+      key: publicKey,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+    }, signature, 'base64');
+  }
+}
+
+function createECDSASigner(bits) {
+  var inner = createKeySigner(bits);
+  return function sign() {
+    var signature = inner.apply(null, arguments);
+    signature = formatEcdsa.derToJose(signature, 'ES' + bits);
+    return signature;
+  };
+}
+
+function createECDSAVerifer(bits) {
+  var inner = createKeyVerifier(bits);
+  return function verify(thing, signature, publicKey) {
+    signature = formatEcdsa.joseToDer(signature, 'ES' + bits).toString('base64');
+    var result = inner(thing, signature, publicKey);
+    return result;
+  };
+}
+
+function createNoneSigner() {
+  return function sign() {
+    return '';
+  }
+}
+
+function createNoneVerifier() {
+  return function verify(thing, signature) {
+    return signature === '';
+  }
+}
+
+module.exports = function jwa(algorithm) {
+  var signerFactories = {
+    hs: createHmacSigner,
+    rs: createKeySigner,
+    ps: createPSSKeySigner,
+    es: createECDSASigner,
+    none: createNoneSigner,
+  }
+  var verifierFactories = {
+    hs: createHmacVerifier,
+    rs: createKeyVerifier,
+    ps: createPSSKeyVerifier,
+    es: createECDSAVerifer,
+    none: createNoneVerifier,
+  }
+  var match = algorithm.match(/^(RS|PS|ES|HS)(256|384|512)$|^(none)$/);
+  if (!match)
+    throw typeError(MSG_INVALID_ALGORITHM, algorithm);
+  var algo = (match[1] || match[3]).toLowerCase();
+  var bits = match[2];
+
+  return {
+    sign: signerFactories[algo](bits),
+    verify: verifierFactories[algo](bits),
+  }
+};
+
+
+/***/ }),
+
+/***/ 3922:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+/*global exports*/
+var SignStream = __nccwpck_require__(414);
+var VerifyStream = __nccwpck_require__(9470);
+
+var ALGORITHMS = [
+  'HS256', 'HS384', 'HS512',
+  'RS256', 'RS384', 'RS512',
+  'PS256', 'PS384', 'PS512',
+  'ES256', 'ES384', 'ES512'
+];
+
+exports.ALGORITHMS = ALGORITHMS;
+exports.sign = SignStream.sign;
+exports.verify = VerifyStream.verify;
+exports.decode = VerifyStream.decode;
+exports.isValid = VerifyStream.isValid;
+exports.createSign = function createSign(opts) {
+  return new SignStream(opts);
+};
+exports.createVerify = function createVerify(opts) {
+  return new VerifyStream(opts);
+};
+
+
+/***/ }),
+
+/***/ 8353:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/*global module, process*/
+var Buffer = (__nccwpck_require__(5249).Buffer);
+var Stream = __nccwpck_require__(2203);
+var util = __nccwpck_require__(9023);
+
+function DataStream(data) {
+  this.buffer = null;
+  this.writable = true;
+  this.readable = true;
+
+  // No input
+  if (!data) {
+    this.buffer = Buffer.alloc(0);
+    return this;
+  }
+
+  // Stream
+  if (typeof data.pipe === 'function') {
+    this.buffer = Buffer.alloc(0);
+    data.pipe(this);
+    return this;
+  }
+
+  // Buffer or String
+  // or Object (assumedly a passworded key)
+  if (data.length || typeof data === 'object') {
+    this.buffer = data;
+    this.writable = false;
+    process.nextTick(function () {
+      this.emit('end', data);
+      this.readable = false;
+      this.emit('close');
+    }.bind(this));
+    return this;
+  }
+
+  throw new TypeError('Unexpected data type ('+ typeof data + ')');
+}
+util.inherits(DataStream, Stream);
+
+DataStream.prototype.write = function write(data) {
+  this.buffer = Buffer.concat([this.buffer, Buffer.from(data)]);
+  this.emit('data', data);
+};
+
+DataStream.prototype.end = function end(data) {
+  if (data)
+    this.write(data);
+  this.emit('end', data);
+  this.emit('close');
+  this.writable = false;
+  this.readable = false;
+};
+
+module.exports = DataStream;
+
+
+/***/ }),
+
+/***/ 414:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/*global module*/
+var Buffer = (__nccwpck_require__(5249).Buffer);
+var DataStream = __nccwpck_require__(8353);
+var jwa = __nccwpck_require__(6308);
+var Stream = __nccwpck_require__(2203);
+var toString = __nccwpck_require__(2176);
+var util = __nccwpck_require__(9023);
+
+function base64url(string, encoding) {
+  return Buffer
+    .from(string, encoding)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function jwsSecuredInput(header, payload, encoding) {
+  encoding = encoding || 'utf8';
+  var encodedHeader = base64url(toString(header), 'binary');
+  var encodedPayload = base64url(toString(payload), encoding);
+  return util.format('%s.%s', encodedHeader, encodedPayload);
+}
+
+function jwsSign(opts) {
+  var header = opts.header;
+  var payload = opts.payload;
+  var secretOrKey = opts.secret || opts.privateKey;
+  var encoding = opts.encoding;
+  var algo = jwa(header.alg);
+  var securedInput = jwsSecuredInput(header, payload, encoding);
+  var signature = algo.sign(securedInput, secretOrKey);
+  return util.format('%s.%s', securedInput, signature);
+}
+
+function SignStream(opts) {
+  var secret = opts.secret;
+  secret = secret == null ? opts.privateKey : secret;
+  secret = secret == null ? opts.key : secret;
+  if (/^hs/i.test(opts.header.alg) === true && secret == null) {
+    throw new TypeError('secret must be a string or buffer or a KeyObject')
+  }
+  var secretStream = new DataStream(secret);
+  this.readable = true;
+  this.header = opts.header;
+  this.encoding = opts.encoding;
+  this.secret = this.privateKey = this.key = secretStream;
+  this.payload = new DataStream(opts.payload);
+  this.secret.once('close', function () {
+    if (!this.payload.writable && this.readable)
+      this.sign();
+  }.bind(this));
+
+  this.payload.once('close', function () {
+    if (!this.secret.writable && this.readable)
+      this.sign();
+  }.bind(this));
+}
+util.inherits(SignStream, Stream);
+
+SignStream.prototype.sign = function sign() {
+  try {
+    var signature = jwsSign({
+      header: this.header,
+      payload: this.payload.buffer,
+      secret: this.secret.buffer,
+      encoding: this.encoding
+    });
+    this.emit('done', signature);
+    this.emit('data', signature);
+    this.emit('end');
+    this.readable = false;
+    return signature;
+  } catch (e) {
+    this.readable = false;
+    this.emit('error', e);
+    this.emit('close');
+  }
+};
+
+SignStream.sign = jwsSign;
+
+module.exports = SignStream;
+
+
+/***/ }),
+
+/***/ 2176:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/*global module*/
+var Buffer = (__nccwpck_require__(181).Buffer);
+
+module.exports = function toString(obj) {
+  if (typeof obj === 'string')
+    return obj;
+  if (typeof obj === 'number' || Buffer.isBuffer(obj))
+    return obj.toString();
+  return JSON.stringify(obj);
+};
+
+
+/***/ }),
+
+/***/ 9470:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/*global module*/
+var Buffer = (__nccwpck_require__(5249).Buffer);
+var DataStream = __nccwpck_require__(8353);
+var jwa = __nccwpck_require__(6308);
+var Stream = __nccwpck_require__(2203);
+var toString = __nccwpck_require__(2176);
+var util = __nccwpck_require__(9023);
+var JWS_REGEX = /^[a-zA-Z0-9\-_]+?\.[a-zA-Z0-9\-_]+?\.([a-zA-Z0-9\-_]+)?$/;
+
+function isObject(thing) {
+  return Object.prototype.toString.call(thing) === '[object Object]';
+}
+
+function safeJsonParse(thing) {
+  if (isObject(thing))
+    return thing;
+  try { return JSON.parse(thing); }
+  catch (e) { return undefined; }
+}
+
+function headerFromJWS(jwsSig) {
+  var encodedHeader = jwsSig.split('.', 1)[0];
+  return safeJsonParse(Buffer.from(encodedHeader, 'base64').toString('binary'));
+}
+
+function securedInputFromJWS(jwsSig) {
+  return jwsSig.split('.', 2).join('.');
+}
+
+function signatureFromJWS(jwsSig) {
+  return jwsSig.split('.')[2];
+}
+
+function payloadFromJWS(jwsSig, encoding) {
+  encoding = encoding || 'utf8';
+  var payload = jwsSig.split('.')[1];
+  return Buffer.from(payload, 'base64').toString(encoding);
+}
+
+function isValidJws(string) {
+  return JWS_REGEX.test(string) && !!headerFromJWS(string);
+}
+
+function jwsVerify(jwsSig, algorithm, secretOrKey) {
+  if (!algorithm) {
+    var err = new Error("Missing algorithm parameter for jws.verify");
+    err.code = "MISSING_ALGORITHM";
+    throw err;
+  }
+  jwsSig = toString(jwsSig);
+  var signature = signatureFromJWS(jwsSig);
+  var securedInput = securedInputFromJWS(jwsSig);
+  var algo = jwa(algorithm);
+  return algo.verify(securedInput, signature, secretOrKey);
+}
+
+function jwsDecode(jwsSig, opts) {
+  opts = opts || {};
+  jwsSig = toString(jwsSig);
+
+  if (!isValidJws(jwsSig))
+    return null;
+
+  var header = headerFromJWS(jwsSig);
+
+  if (!header)
+    return null;
+
+  var payload = payloadFromJWS(jwsSig);
+  if (header.typ === 'JWT' || opts.json)
+    payload = JSON.parse(payload, opts.encoding);
+
+  return {
+    header: header,
+    payload: payload,
+    signature: signatureFromJWS(jwsSig)
+  };
+}
+
+function VerifyStream(opts) {
+  opts = opts || {};
+  var secretOrKey = opts.secret;
+  secretOrKey = secretOrKey == null ? opts.publicKey : secretOrKey;
+  secretOrKey = secretOrKey == null ? opts.key : secretOrKey;
+  if (/^hs/i.test(opts.algorithm) === true && secretOrKey == null) {
+    throw new TypeError('secret must be a string or buffer or a KeyObject')
+  }
+  var secretStream = new DataStream(secretOrKey);
+  this.readable = true;
+  this.algorithm = opts.algorithm;
+  this.encoding = opts.encoding;
+  this.secret = this.publicKey = this.key = secretStream;
+  this.signature = new DataStream(opts.signature);
+  this.secret.once('close', function () {
+    if (!this.signature.writable && this.readable)
+      this.verify();
+  }.bind(this));
+
+  this.signature.once('close', function () {
+    if (!this.secret.writable && this.readable)
+      this.verify();
+  }.bind(this));
+}
+util.inherits(VerifyStream, Stream);
+VerifyStream.prototype.verify = function verify() {
+  try {
+    var valid = jwsVerify(this.signature.buffer, this.algorithm, this.key.buffer);
+    var obj = jwsDecode(this.signature.buffer, this.encoding);
+    this.emit('done', valid, obj);
+    this.emit('data', valid);
+    this.emit('end');
+    this.readable = false;
+    return valid;
+  } catch (e) {
+    this.readable = false;
+    this.emit('error', e);
+    this.emit('close');
+  }
+};
+
+VerifyStream.decode = jwsDecode;
+VerifyStream.isValid = isValidJws;
+VerifyStream.verify = jwsVerify;
+
+module.exports = VerifyStream;
+
+
+/***/ }),
+
+/***/ 5252:
+/***/ ((module) => {
+
+/**
+ * lodash (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright jQuery Foundation and other contributors <https://jquery.org/>
+ * Released under MIT license <https://lodash.com/license>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ */
+
+/** Used as references for various `Number` constants. */
+var INFINITY = 1 / 0,
+    MAX_SAFE_INTEGER = 9007199254740991,
+    MAX_INTEGER = 1.7976931348623157e+308,
+    NAN = 0 / 0;
+
+/** `Object#toString` result references. */
+var argsTag = '[object Arguments]',
+    funcTag = '[object Function]',
+    genTag = '[object GeneratorFunction]',
+    stringTag = '[object String]',
+    symbolTag = '[object Symbol]';
+
+/** Used to match leading and trailing whitespace. */
+var reTrim = /^\s+|\s+$/g;
+
+/** Used to detect bad signed hexadecimal string values. */
+var reIsBadHex = /^[-+]0x[0-9a-f]+$/i;
+
+/** Used to detect binary string values. */
+var reIsBinary = /^0b[01]+$/i;
+
+/** Used to detect octal string values. */
+var reIsOctal = /^0o[0-7]+$/i;
+
+/** Used to detect unsigned integer values. */
+var reIsUint = /^(?:0|[1-9]\d*)$/;
+
+/** Built-in method references without a dependency on `root`. */
+var freeParseInt = parseInt;
+
+/**
+ * A specialized version of `_.map` for arrays without support for iteratee
+ * shorthands.
+ *
+ * @private
+ * @param {Array} [array] The array to iterate over.
+ * @param {Function} iteratee The function invoked per iteration.
+ * @returns {Array} Returns the new mapped array.
+ */
+function arrayMap(array, iteratee) {
+  var index = -1,
+      length = array ? array.length : 0,
+      result = Array(length);
+
+  while (++index < length) {
+    result[index] = iteratee(array[index], index, array);
+  }
+  return result;
+}
+
+/**
+ * The base implementation of `_.findIndex` and `_.findLastIndex` without
+ * support for iteratee shorthands.
+ *
+ * @private
+ * @param {Array} array The array to inspect.
+ * @param {Function} predicate The function invoked per iteration.
+ * @param {number} fromIndex The index to search from.
+ * @param {boolean} [fromRight] Specify iterating from right to left.
+ * @returns {number} Returns the index of the matched value, else `-1`.
+ */
+function baseFindIndex(array, predicate, fromIndex, fromRight) {
+  var length = array.length,
+      index = fromIndex + (fromRight ? 1 : -1);
+
+  while ((fromRight ? index-- : ++index < length)) {
+    if (predicate(array[index], index, array)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The base implementation of `_.indexOf` without `fromIndex` bounds checks.
+ *
+ * @private
+ * @param {Array} array The array to inspect.
+ * @param {*} value The value to search for.
+ * @param {number} fromIndex The index to search from.
+ * @returns {number} Returns the index of the matched value, else `-1`.
+ */
+function baseIndexOf(array, value, fromIndex) {
+  if (value !== value) {
+    return baseFindIndex(array, baseIsNaN, fromIndex);
+  }
+  var index = fromIndex - 1,
+      length = array.length;
+
+  while (++index < length) {
+    if (array[index] === value) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The base implementation of `_.isNaN` without support for number objects.
+ *
+ * @private
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is `NaN`, else `false`.
+ */
+function baseIsNaN(value) {
+  return value !== value;
+}
+
+/**
+ * The base implementation of `_.times` without support for iteratee shorthands
+ * or max array length checks.
+ *
+ * @private
+ * @param {number} n The number of times to invoke `iteratee`.
+ * @param {Function} iteratee The function invoked per iteration.
+ * @returns {Array} Returns the array of results.
+ */
+function baseTimes(n, iteratee) {
+  var index = -1,
+      result = Array(n);
+
+  while (++index < n) {
+    result[index] = iteratee(index);
+  }
+  return result;
+}
+
+/**
+ * The base implementation of `_.values` and `_.valuesIn` which creates an
+ * array of `object` property values corresponding to the property names
+ * of `props`.
+ *
+ * @private
+ * @param {Object} object The object to query.
+ * @param {Array} props The property names to get values for.
+ * @returns {Object} Returns the array of property values.
+ */
+function baseValues(object, props) {
+  return arrayMap(props, function(key) {
+    return object[key];
+  });
+}
+
+/**
+ * Creates a unary function that invokes `func` with its argument transformed.
+ *
+ * @private
+ * @param {Function} func The function to wrap.
+ * @param {Function} transform The argument transform.
+ * @returns {Function} Returns the new function.
+ */
+function overArg(func, transform) {
+  return function(arg) {
+    return func(transform(arg));
+  };
+}
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/** Used to check objects for own properties. */
+var hasOwnProperty = objectProto.hasOwnProperty;
+
+/**
+ * Used to resolve the
+ * [`toStringTag`](http://ecma-international.org/ecma-262/7.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/** Built-in value references. */
+var propertyIsEnumerable = objectProto.propertyIsEnumerable;
+
+/* Built-in method references for those with the same name as other `lodash` methods. */
+var nativeKeys = overArg(Object.keys, Object),
+    nativeMax = Math.max;
+
+/**
+ * Creates an array of the enumerable property names of the array-like `value`.
+ *
+ * @private
+ * @param {*} value The value to query.
+ * @param {boolean} inherited Specify returning inherited property names.
+ * @returns {Array} Returns the array of property names.
+ */
+function arrayLikeKeys(value, inherited) {
+  // Safari 8.1 makes `arguments.callee` enumerable in strict mode.
+  // Safari 9 makes `arguments.length` enumerable in strict mode.
+  var result = (isArray(value) || isArguments(value))
+    ? baseTimes(value.length, String)
+    : [];
+
+  var length = result.length,
+      skipIndexes = !!length;
+
+  for (var key in value) {
+    if ((inherited || hasOwnProperty.call(value, key)) &&
+        !(skipIndexes && (key == 'length' || isIndex(key, length)))) {
+      result.push(key);
+    }
+  }
+  return result;
+}
+
+/**
+ * The base implementation of `_.keys` which doesn't treat sparse arrays as dense.
+ *
+ * @private
+ * @param {Object} object The object to query.
+ * @returns {Array} Returns the array of property names.
+ */
+function baseKeys(object) {
+  if (!isPrototype(object)) {
+    return nativeKeys(object);
+  }
+  var result = [];
+  for (var key in Object(object)) {
+    if (hasOwnProperty.call(object, key) && key != 'constructor') {
+      result.push(key);
+    }
+  }
+  return result;
+}
+
+/**
+ * Checks if `value` is a valid array-like index.
+ *
+ * @private
+ * @param {*} value The value to check.
+ * @param {number} [length=MAX_SAFE_INTEGER] The upper bounds of a valid index.
+ * @returns {boolean} Returns `true` if `value` is a valid index, else `false`.
+ */
+function isIndex(value, length) {
+  length = length == null ? MAX_SAFE_INTEGER : length;
+  return !!length &&
+    (typeof value == 'number' || reIsUint.test(value)) &&
+    (value > -1 && value % 1 == 0 && value < length);
+}
+
+/**
+ * Checks if `value` is likely a prototype object.
+ *
+ * @private
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a prototype, else `false`.
+ */
+function isPrototype(value) {
+  var Ctor = value && value.constructor,
+      proto = (typeof Ctor == 'function' && Ctor.prototype) || objectProto;
+
+  return value === proto;
+}
+
+/**
+ * Checks if `value` is in `collection`. If `collection` is a string, it's
+ * checked for a substring of `value`, otherwise
+ * [`SameValueZero`](http://ecma-international.org/ecma-262/7.0/#sec-samevaluezero)
+ * is used for equality comparisons. If `fromIndex` is negative, it's used as
+ * the offset from the end of `collection`.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Collection
+ * @param {Array|Object|string} collection The collection to inspect.
+ * @param {*} value The value to search for.
+ * @param {number} [fromIndex=0] The index to search from.
+ * @param- {Object} [guard] Enables use as an iteratee for methods like `_.reduce`.
+ * @returns {boolean} Returns `true` if `value` is found, else `false`.
+ * @example
+ *
+ * _.includes([1, 2, 3], 1);
+ * // => true
+ *
+ * _.includes([1, 2, 3], 1, 2);
+ * // => false
+ *
+ * _.includes({ 'a': 1, 'b': 2 }, 1);
+ * // => true
+ *
+ * _.includes('abcd', 'bc');
+ * // => true
+ */
+function includes(collection, value, fromIndex, guard) {
+  collection = isArrayLike(collection) ? collection : values(collection);
+  fromIndex = (fromIndex && !guard) ? toInteger(fromIndex) : 0;
+
+  var length = collection.length;
+  if (fromIndex < 0) {
+    fromIndex = nativeMax(length + fromIndex, 0);
+  }
+  return isString(collection)
+    ? (fromIndex <= length && collection.indexOf(value, fromIndex) > -1)
+    : (!!length && baseIndexOf(collection, value, fromIndex) > -1);
+}
+
+/**
+ * Checks if `value` is likely an `arguments` object.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an `arguments` object,
+ *  else `false`.
+ * @example
+ *
+ * _.isArguments(function() { return arguments; }());
+ * // => true
+ *
+ * _.isArguments([1, 2, 3]);
+ * // => false
+ */
+function isArguments(value) {
+  // Safari 8.1 makes `arguments.callee` enumerable in strict mode.
+  return isArrayLikeObject(value) && hasOwnProperty.call(value, 'callee') &&
+    (!propertyIsEnumerable.call(value, 'callee') || objectToString.call(value) == argsTag);
+}
+
+/**
+ * Checks if `value` is classified as an `Array` object.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an array, else `false`.
+ * @example
+ *
+ * _.isArray([1, 2, 3]);
+ * // => true
+ *
+ * _.isArray(document.body.children);
+ * // => false
+ *
+ * _.isArray('abc');
+ * // => false
+ *
+ * _.isArray(_.noop);
+ * // => false
+ */
+var isArray = Array.isArray;
+
+/**
+ * Checks if `value` is array-like. A value is considered array-like if it's
+ * not a function and has a `value.length` that's an integer greater than or
+ * equal to `0` and less than or equal to `Number.MAX_SAFE_INTEGER`.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is array-like, else `false`.
+ * @example
+ *
+ * _.isArrayLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isArrayLike(document.body.children);
+ * // => true
+ *
+ * _.isArrayLike('abc');
+ * // => true
+ *
+ * _.isArrayLike(_.noop);
+ * // => false
+ */
+function isArrayLike(value) {
+  return value != null && isLength(value.length) && !isFunction(value);
+}
+
+/**
+ * This method is like `_.isArrayLike` except that it also checks if `value`
+ * is an object.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an array-like object,
+ *  else `false`.
+ * @example
+ *
+ * _.isArrayLikeObject([1, 2, 3]);
+ * // => true
+ *
+ * _.isArrayLikeObject(document.body.children);
+ * // => true
+ *
+ * _.isArrayLikeObject('abc');
+ * // => false
+ *
+ * _.isArrayLikeObject(_.noop);
+ * // => false
+ */
+function isArrayLikeObject(value) {
+  return isObjectLike(value) && isArrayLike(value);
+}
+
+/**
+ * Checks if `value` is classified as a `Function` object.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a function, else `false`.
+ * @example
+ *
+ * _.isFunction(_);
+ * // => true
+ *
+ * _.isFunction(/abc/);
+ * // => false
+ */
+function isFunction(value) {
+  // The use of `Object#toString` avoids issues with the `typeof` operator
+  // in Safari 8-9 which returns 'object' for typed array and other constructors.
+  var tag = isObject(value) ? objectToString.call(value) : '';
+  return tag == funcTag || tag == genTag;
+}
+
+/**
+ * Checks if `value` is a valid array-like length.
+ *
+ * **Note:** This method is loosely based on
+ * [`ToLength`](http://ecma-international.org/ecma-262/7.0/#sec-tolength).
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a valid length, else `false`.
+ * @example
+ *
+ * _.isLength(3);
+ * // => true
+ *
+ * _.isLength(Number.MIN_VALUE);
+ * // => false
+ *
+ * _.isLength(Infinity);
+ * // => false
+ *
+ * _.isLength('3');
+ * // => false
+ */
+function isLength(value) {
+  return typeof value == 'number' &&
+    value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
+}
+
+/**
+ * Checks if `value` is the
+ * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
+ * of `Object`. (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an object, else `false`.
+ * @example
+ *
+ * _.isObject({});
+ * // => true
+ *
+ * _.isObject([1, 2, 3]);
+ * // => true
+ *
+ * _.isObject(_.noop);
+ * // => true
+ *
+ * _.isObject(null);
+ * // => false
+ */
+function isObject(value) {
+  var type = typeof value;
+  return !!value && (type == 'object' || type == 'function');
+}
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is classified as a `String` primitive or object.
+ *
+ * @static
+ * @since 0.1.0
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a string, else `false`.
+ * @example
+ *
+ * _.isString('abc');
+ * // => true
+ *
+ * _.isString(1);
+ * // => false
+ */
+function isString(value) {
+  return typeof value == 'string' ||
+    (!isArray(value) && isObjectLike(value) && objectToString.call(value) == stringTag);
+}
+
+/**
+ * Checks if `value` is classified as a `Symbol` primitive or object.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a symbol, else `false`.
+ * @example
+ *
+ * _.isSymbol(Symbol.iterator);
+ * // => true
+ *
+ * _.isSymbol('abc');
+ * // => false
+ */
+function isSymbol(value) {
+  return typeof value == 'symbol' ||
+    (isObjectLike(value) && objectToString.call(value) == symbolTag);
+}
+
+/**
+ * Converts `value` to a finite number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.12.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted number.
+ * @example
+ *
+ * _.toFinite(3.2);
+ * // => 3.2
+ *
+ * _.toFinite(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toFinite(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toFinite('3.2');
+ * // => 3.2
+ */
+function toFinite(value) {
+  if (!value) {
+    return value === 0 ? value : 0;
+  }
+  value = toNumber(value);
+  if (value === INFINITY || value === -INFINITY) {
+    var sign = (value < 0 ? -1 : 1);
+    return sign * MAX_INTEGER;
+  }
+  return value === value ? value : 0;
+}
+
+/**
+ * Converts `value` to an integer.
+ *
+ * **Note:** This method is loosely based on
+ * [`ToInteger`](http://www.ecma-international.org/ecma-262/7.0/#sec-tointeger).
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted integer.
+ * @example
+ *
+ * _.toInteger(3.2);
+ * // => 3
+ *
+ * _.toInteger(Number.MIN_VALUE);
+ * // => 0
+ *
+ * _.toInteger(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toInteger('3.2');
+ * // => 3
+ */
+function toInteger(value) {
+  var result = toFinite(value),
+      remainder = result % 1;
+
+  return result === result ? (remainder ? result - remainder : result) : 0;
+}
+
+/**
+ * Converts `value` to a number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to process.
+ * @returns {number} Returns the number.
+ * @example
+ *
+ * _.toNumber(3.2);
+ * // => 3.2
+ *
+ * _.toNumber(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toNumber(Infinity);
+ * // => Infinity
+ *
+ * _.toNumber('3.2');
+ * // => 3.2
+ */
+function toNumber(value) {
+  if (typeof value == 'number') {
+    return value;
+  }
+  if (isSymbol(value)) {
+    return NAN;
+  }
+  if (isObject(value)) {
+    var other = typeof value.valueOf == 'function' ? value.valueOf() : value;
+    value = isObject(other) ? (other + '') : other;
+  }
+  if (typeof value != 'string') {
+    return value === 0 ? value : +value;
+  }
+  value = value.replace(reTrim, '');
+  var isBinary = reIsBinary.test(value);
+  return (isBinary || reIsOctal.test(value))
+    ? freeParseInt(value.slice(2), isBinary ? 2 : 8)
+    : (reIsBadHex.test(value) ? NAN : +value);
+}
+
+/**
+ * Creates an array of the own enumerable property names of `object`.
+ *
+ * **Note:** Non-object values are coerced to objects. See the
+ * [ES spec](http://ecma-international.org/ecma-262/7.0/#sec-object.keys)
+ * for more details.
+ *
+ * @static
+ * @since 0.1.0
+ * @memberOf _
+ * @category Object
+ * @param {Object} object The object to query.
+ * @returns {Array} Returns the array of property names.
+ * @example
+ *
+ * function Foo() {
+ *   this.a = 1;
+ *   this.b = 2;
+ * }
+ *
+ * Foo.prototype.c = 3;
+ *
+ * _.keys(new Foo);
+ * // => ['a', 'b'] (iteration order is not guaranteed)
+ *
+ * _.keys('hi');
+ * // => ['0', '1']
+ */
+function keys(object) {
+  return isArrayLike(object) ? arrayLikeKeys(object) : baseKeys(object);
+}
+
+/**
+ * Creates an array of the own enumerable string keyed property values of `object`.
+ *
+ * **Note:** Non-object values are coerced to objects.
+ *
+ * @static
+ * @since 0.1.0
+ * @memberOf _
+ * @category Object
+ * @param {Object} object The object to query.
+ * @returns {Array} Returns the array of property values.
+ * @example
+ *
+ * function Foo() {
+ *   this.a = 1;
+ *   this.b = 2;
+ * }
+ *
+ * Foo.prototype.c = 3;
+ *
+ * _.values(new Foo);
+ * // => [1, 2] (iteration order is not guaranteed)
+ *
+ * _.values('hi');
+ * // => ['h', 'i']
+ */
+function values(object) {
+  return object ? baseValues(object, keys(object)) : [];
+}
+
+module.exports = includes;
+
+
+/***/ }),
+
+/***/ 2771:
+/***/ ((module) => {
+
+/**
+ * lodash 3.0.3 (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright 2012-2016 The Dojo Foundation <http://dojofoundation.org/>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright 2009-2016 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ * Available under MIT license <https://lodash.com/license>
+ */
+
+/** `Object#toString` result references. */
+var boolTag = '[object Boolean]';
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/**
+ * Used to resolve the [`toStringTag`](http://ecma-international.org/ecma-262/6.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/**
+ * Checks if `value` is classified as a boolean primitive or object.
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
+ * @example
+ *
+ * _.isBoolean(false);
+ * // => true
+ *
+ * _.isBoolean(null);
+ * // => false
+ */
+function isBoolean(value) {
+  return value === true || value === false ||
+    (isObjectLike(value) && objectToString.call(value) == boolTag);
+}
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+module.exports = isBoolean;
+
+
+/***/ }),
+
+/***/ 4367:
+/***/ ((module) => {
+
+/**
+ * lodash (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright jQuery Foundation and other contributors <https://jquery.org/>
+ * Released under MIT license <https://lodash.com/license>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ */
+
+/** Used as references for various `Number` constants. */
+var INFINITY = 1 / 0,
+    MAX_INTEGER = 1.7976931348623157e+308,
+    NAN = 0 / 0;
+
+/** `Object#toString` result references. */
+var symbolTag = '[object Symbol]';
+
+/** Used to match leading and trailing whitespace. */
+var reTrim = /^\s+|\s+$/g;
+
+/** Used to detect bad signed hexadecimal string values. */
+var reIsBadHex = /^[-+]0x[0-9a-f]+$/i;
+
+/** Used to detect binary string values. */
+var reIsBinary = /^0b[01]+$/i;
+
+/** Used to detect octal string values. */
+var reIsOctal = /^0o[0-7]+$/i;
+
+/** Built-in method references without a dependency on `root`. */
+var freeParseInt = parseInt;
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/**
+ * Used to resolve the
+ * [`toStringTag`](http://ecma-international.org/ecma-262/7.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/**
+ * Checks if `value` is an integer.
+ *
+ * **Note:** This method is based on
+ * [`Number.isInteger`](https://mdn.io/Number/isInteger).
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an integer, else `false`.
+ * @example
+ *
+ * _.isInteger(3);
+ * // => true
+ *
+ * _.isInteger(Number.MIN_VALUE);
+ * // => false
+ *
+ * _.isInteger(Infinity);
+ * // => false
+ *
+ * _.isInteger('3');
+ * // => false
+ */
+function isInteger(value) {
+  return typeof value == 'number' && value == toInteger(value);
+}
+
+/**
+ * Checks if `value` is the
+ * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
+ * of `Object`. (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an object, else `false`.
+ * @example
+ *
+ * _.isObject({});
+ * // => true
+ *
+ * _.isObject([1, 2, 3]);
+ * // => true
+ *
+ * _.isObject(_.noop);
+ * // => true
+ *
+ * _.isObject(null);
+ * // => false
+ */
+function isObject(value) {
+  var type = typeof value;
+  return !!value && (type == 'object' || type == 'function');
+}
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is classified as a `Symbol` primitive or object.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a symbol, else `false`.
+ * @example
+ *
+ * _.isSymbol(Symbol.iterator);
+ * // => true
+ *
+ * _.isSymbol('abc');
+ * // => false
+ */
+function isSymbol(value) {
+  return typeof value == 'symbol' ||
+    (isObjectLike(value) && objectToString.call(value) == symbolTag);
+}
+
+/**
+ * Converts `value` to a finite number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.12.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted number.
+ * @example
+ *
+ * _.toFinite(3.2);
+ * // => 3.2
+ *
+ * _.toFinite(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toFinite(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toFinite('3.2');
+ * // => 3.2
+ */
+function toFinite(value) {
+  if (!value) {
+    return value === 0 ? value : 0;
+  }
+  value = toNumber(value);
+  if (value === INFINITY || value === -INFINITY) {
+    var sign = (value < 0 ? -1 : 1);
+    return sign * MAX_INTEGER;
+  }
+  return value === value ? value : 0;
+}
+
+/**
+ * Converts `value` to an integer.
+ *
+ * **Note:** This method is loosely based on
+ * [`ToInteger`](http://www.ecma-international.org/ecma-262/7.0/#sec-tointeger).
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted integer.
+ * @example
+ *
+ * _.toInteger(3.2);
+ * // => 3
+ *
+ * _.toInteger(Number.MIN_VALUE);
+ * // => 0
+ *
+ * _.toInteger(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toInteger('3.2');
+ * // => 3
+ */
+function toInteger(value) {
+  var result = toFinite(value),
+      remainder = result % 1;
+
+  return result === result ? (remainder ? result - remainder : result) : 0;
+}
+
+/**
+ * Converts `value` to a number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to process.
+ * @returns {number} Returns the number.
+ * @example
+ *
+ * _.toNumber(3.2);
+ * // => 3.2
+ *
+ * _.toNumber(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toNumber(Infinity);
+ * // => Infinity
+ *
+ * _.toNumber('3.2');
+ * // => 3.2
+ */
+function toNumber(value) {
+  if (typeof value == 'number') {
+    return value;
+  }
+  if (isSymbol(value)) {
+    return NAN;
+  }
+  if (isObject(value)) {
+    var other = typeof value.valueOf == 'function' ? value.valueOf() : value;
+    value = isObject(other) ? (other + '') : other;
+  }
+  if (typeof value != 'string') {
+    return value === 0 ? value : +value;
+  }
+  value = value.replace(reTrim, '');
+  var isBinary = reIsBinary.test(value);
+  return (isBinary || reIsOctal.test(value))
+    ? freeParseInt(value.slice(2), isBinary ? 2 : 8)
+    : (reIsBadHex.test(value) ? NAN : +value);
+}
+
+module.exports = isInteger;
+
+
+/***/ }),
+
+/***/ 5011:
+/***/ ((module) => {
+
+/**
+ * lodash 3.0.3 (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright 2012-2016 The Dojo Foundation <http://dojofoundation.org/>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright 2009-2016 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ * Available under MIT license <https://lodash.com/license>
+ */
+
+/** `Object#toString` result references. */
+var numberTag = '[object Number]';
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/**
+ * Used to resolve the [`toStringTag`](http://ecma-international.org/ecma-262/6.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is classified as a `Number` primitive or object.
+ *
+ * **Note:** To exclude `Infinity`, `-Infinity`, and `NaN`, which are classified
+ * as numbers, use the `_.isFinite` method.
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
+ * @example
+ *
+ * _.isNumber(3);
+ * // => true
+ *
+ * _.isNumber(Number.MIN_VALUE);
+ * // => true
+ *
+ * _.isNumber(Infinity);
+ * // => true
+ *
+ * _.isNumber('3');
+ * // => false
+ */
+function isNumber(value) {
+  return typeof value == 'number' ||
+    (isObjectLike(value) && objectToString.call(value) == numberTag);
+}
+
+module.exports = isNumber;
+
+
+/***/ }),
+
+/***/ 5341:
+/***/ ((module) => {
+
+/**
+ * lodash (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright jQuery Foundation and other contributors <https://jquery.org/>
+ * Released under MIT license <https://lodash.com/license>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ */
+
+/** `Object#toString` result references. */
+var objectTag = '[object Object]';
+
+/**
+ * Checks if `value` is a host object in IE < 9.
+ *
+ * @private
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a host object, else `false`.
+ */
+function isHostObject(value) {
+  // Many host objects are `Object` objects that can coerce to strings
+  // despite having improperly defined `toString` methods.
+  var result = false;
+  if (value != null && typeof value.toString != 'function') {
+    try {
+      result = !!(value + '');
+    } catch (e) {}
+  }
+  return result;
+}
+
+/**
+ * Creates a unary function that invokes `func` with its argument transformed.
+ *
+ * @private
+ * @param {Function} func The function to wrap.
+ * @param {Function} transform The argument transform.
+ * @returns {Function} Returns the new function.
+ */
+function overArg(func, transform) {
+  return function(arg) {
+    return func(transform(arg));
+  };
+}
+
+/** Used for built-in method references. */
+var funcProto = Function.prototype,
+    objectProto = Object.prototype;
+
+/** Used to resolve the decompiled source of functions. */
+var funcToString = funcProto.toString;
+
+/** Used to check objects for own properties. */
+var hasOwnProperty = objectProto.hasOwnProperty;
+
+/** Used to infer the `Object` constructor. */
+var objectCtorString = funcToString.call(Object);
+
+/**
+ * Used to resolve the
+ * [`toStringTag`](http://ecma-international.org/ecma-262/7.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/** Built-in value references. */
+var getPrototype = overArg(Object.getPrototypeOf, Object);
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is a plain object, that is, an object created by the
+ * `Object` constructor or one with a `[[Prototype]]` of `null`.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.8.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a plain object, else `false`.
+ * @example
+ *
+ * function Foo() {
+ *   this.a = 1;
+ * }
+ *
+ * _.isPlainObject(new Foo);
+ * // => false
+ *
+ * _.isPlainObject([1, 2, 3]);
+ * // => false
+ *
+ * _.isPlainObject({ 'x': 0, 'y': 0 });
+ * // => true
+ *
+ * _.isPlainObject(Object.create(null));
+ * // => true
+ */
+function isPlainObject(value) {
+  if (!isObjectLike(value) ||
+      objectToString.call(value) != objectTag || isHostObject(value)) {
+    return false;
+  }
+  var proto = getPrototype(value);
+  if (proto === null) {
+    return true;
+  }
+  var Ctor = hasOwnProperty.call(proto, 'constructor') && proto.constructor;
+  return (typeof Ctor == 'function' &&
+    Ctor instanceof Ctor && funcToString.call(Ctor) == objectCtorString);
+}
+
+module.exports = isPlainObject;
+
+
+/***/ }),
+
+/***/ 5250:
+/***/ ((module) => {
+
+/**
+ * lodash 4.0.1 (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright 2012-2016 The Dojo Foundation <http://dojofoundation.org/>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright 2009-2016 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ * Available under MIT license <https://lodash.com/license>
+ */
+
+/** `Object#toString` result references. */
+var stringTag = '[object String]';
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/**
+ * Used to resolve the [`toStringTag`](http://ecma-international.org/ecma-262/6.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/**
+ * Checks if `value` is classified as an `Array` object.
+ *
+ * @static
+ * @memberOf _
+ * @type Function
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
+ * @example
+ *
+ * _.isArray([1, 2, 3]);
+ * // => true
+ *
+ * _.isArray(document.body.children);
+ * // => false
+ *
+ * _.isArray('abc');
+ * // => false
+ *
+ * _.isArray(_.noop);
+ * // => false
+ */
+var isArray = Array.isArray;
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is classified as a `String` primitive or object.
+ *
+ * @static
+ * @memberOf _
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
+ * @example
+ *
+ * _.isString('abc');
+ * // => true
+ *
+ * _.isString(1);
+ * // => false
+ */
+function isString(value) {
+  return typeof value == 'string' ||
+    (!isArray(value) && isObjectLike(value) && objectToString.call(value) == stringTag);
+}
+
+module.exports = isString;
+
+
+/***/ }),
+
+/***/ 3839:
+/***/ ((module) => {
+
+/**
+ * lodash (Custom Build) <https://lodash.com/>
+ * Build: `lodash modularize exports="npm" -o ./`
+ * Copyright jQuery Foundation and other contributors <https://jquery.org/>
+ * Released under MIT license <https://lodash.com/license>
+ * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+ * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+ */
+
+/** Used as the `TypeError` message for "Functions" methods. */
+var FUNC_ERROR_TEXT = 'Expected a function';
+
+/** Used as references for various `Number` constants. */
+var INFINITY = 1 / 0,
+    MAX_INTEGER = 1.7976931348623157e+308,
+    NAN = 0 / 0;
+
+/** `Object#toString` result references. */
+var symbolTag = '[object Symbol]';
+
+/** Used to match leading and trailing whitespace. */
+var reTrim = /^\s+|\s+$/g;
+
+/** Used to detect bad signed hexadecimal string values. */
+var reIsBadHex = /^[-+]0x[0-9a-f]+$/i;
+
+/** Used to detect binary string values. */
+var reIsBinary = /^0b[01]+$/i;
+
+/** Used to detect octal string values. */
+var reIsOctal = /^0o[0-7]+$/i;
+
+/** Built-in method references without a dependency on `root`. */
+var freeParseInt = parseInt;
+
+/** Used for built-in method references. */
+var objectProto = Object.prototype;
+
+/**
+ * Used to resolve the
+ * [`toStringTag`](http://ecma-international.org/ecma-262/7.0/#sec-object.prototype.tostring)
+ * of values.
+ */
+var objectToString = objectProto.toString;
+
+/**
+ * Creates a function that invokes `func`, with the `this` binding and arguments
+ * of the created function, while it's called less than `n` times. Subsequent
+ * calls to the created function return the result of the last `func` invocation.
+ *
+ * @static
+ * @memberOf _
+ * @since 3.0.0
+ * @category Function
+ * @param {number} n The number of calls at which `func` is no longer invoked.
+ * @param {Function} func The function to restrict.
+ * @returns {Function} Returns the new restricted function.
+ * @example
+ *
+ * jQuery(element).on('click', _.before(5, addContactToList));
+ * // => Allows adding up to 4 contacts to the list.
+ */
+function before(n, func) {
+  var result;
+  if (typeof func != 'function') {
+    throw new TypeError(FUNC_ERROR_TEXT);
+  }
+  n = toInteger(n);
+  return function() {
+    if (--n > 0) {
+      result = func.apply(this, arguments);
+    }
+    if (n <= 1) {
+      func = undefined;
+    }
+    return result;
+  };
+}
+
+/**
+ * Creates a function that is restricted to invoking `func` once. Repeat calls
+ * to the function return the value of the first invocation. The `func` is
+ * invoked with the `this` binding and arguments of the created function.
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Function
+ * @param {Function} func The function to restrict.
+ * @returns {Function} Returns the new restricted function.
+ * @example
+ *
+ * var initialize = _.once(createApplication);
+ * initialize();
+ * initialize();
+ * // => `createApplication` is invoked once
+ */
+function once(func) {
+  return before(2, func);
+}
+
+/**
+ * Checks if `value` is the
+ * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
+ * of `Object`. (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
+ *
+ * @static
+ * @memberOf _
+ * @since 0.1.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is an object, else `false`.
+ * @example
+ *
+ * _.isObject({});
+ * // => true
+ *
+ * _.isObject([1, 2, 3]);
+ * // => true
+ *
+ * _.isObject(_.noop);
+ * // => true
+ *
+ * _.isObject(null);
+ * // => false
+ */
+function isObject(value) {
+  var type = typeof value;
+  return !!value && (type == 'object' || type == 'function');
+}
+
+/**
+ * Checks if `value` is object-like. A value is object-like if it's not `null`
+ * and has a `typeof` result of "object".
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+ * @example
+ *
+ * _.isObjectLike({});
+ * // => true
+ *
+ * _.isObjectLike([1, 2, 3]);
+ * // => true
+ *
+ * _.isObjectLike(_.noop);
+ * // => false
+ *
+ * _.isObjectLike(null);
+ * // => false
+ */
+function isObjectLike(value) {
+  return !!value && typeof value == 'object';
+}
+
+/**
+ * Checks if `value` is classified as a `Symbol` primitive or object.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to check.
+ * @returns {boolean} Returns `true` if `value` is a symbol, else `false`.
+ * @example
+ *
+ * _.isSymbol(Symbol.iterator);
+ * // => true
+ *
+ * _.isSymbol('abc');
+ * // => false
+ */
+function isSymbol(value) {
+  return typeof value == 'symbol' ||
+    (isObjectLike(value) && objectToString.call(value) == symbolTag);
+}
+
+/**
+ * Converts `value` to a finite number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.12.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted number.
+ * @example
+ *
+ * _.toFinite(3.2);
+ * // => 3.2
+ *
+ * _.toFinite(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toFinite(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toFinite('3.2');
+ * // => 3.2
+ */
+function toFinite(value) {
+  if (!value) {
+    return value === 0 ? value : 0;
+  }
+  value = toNumber(value);
+  if (value === INFINITY || value === -INFINITY) {
+    var sign = (value < 0 ? -1 : 1);
+    return sign * MAX_INTEGER;
+  }
+  return value === value ? value : 0;
+}
+
+/**
+ * Converts `value` to an integer.
+ *
+ * **Note:** This method is loosely based on
+ * [`ToInteger`](http://www.ecma-international.org/ecma-262/7.0/#sec-tointeger).
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to convert.
+ * @returns {number} Returns the converted integer.
+ * @example
+ *
+ * _.toInteger(3.2);
+ * // => 3
+ *
+ * _.toInteger(Number.MIN_VALUE);
+ * // => 0
+ *
+ * _.toInteger(Infinity);
+ * // => 1.7976931348623157e+308
+ *
+ * _.toInteger('3.2');
+ * // => 3
+ */
+function toInteger(value) {
+  var result = toFinite(value),
+      remainder = result % 1;
+
+  return result === result ? (remainder ? result - remainder : result) : 0;
+}
+
+/**
+ * Converts `value` to a number.
+ *
+ * @static
+ * @memberOf _
+ * @since 4.0.0
+ * @category Lang
+ * @param {*} value The value to process.
+ * @returns {number} Returns the number.
+ * @example
+ *
+ * _.toNumber(3.2);
+ * // => 3.2
+ *
+ * _.toNumber(Number.MIN_VALUE);
+ * // => 5e-324
+ *
+ * _.toNumber(Infinity);
+ * // => Infinity
+ *
+ * _.toNumber('3.2');
+ * // => 3.2
+ */
+function toNumber(value) {
+  if (typeof value == 'number') {
+    return value;
+  }
+  if (isSymbol(value)) {
+    return NAN;
+  }
+  if (isObject(value)) {
+    var other = typeof value.valueOf == 'function' ? value.valueOf() : value;
+    value = isObject(other) ? (other + '') : other;
+  }
+  if (typeof value != 'string') {
+    return value === 0 ? value : +value;
+  }
+  value = value.replace(reTrim, '');
+  var isBinary = reIsBinary.test(value);
+  return (isBinary || reIsOctal.test(value))
+    ? freeParseInt(value.slice(2), isBinary ? 2 : 8)
+    : (reIsBadHex.test(value) ? NAN : +value);
+}
+
+module.exports = once;
+
+
+/***/ }),
+
 /***/ 7449:
 /***/ ((module) => {
 
@@ -19240,6 +22622,78 @@ methods.forEach(function (method) {
 
 /***/ }),
 
+/***/ 5249:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+/*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
+/* eslint-disable node/no-deprecated-api */
+var buffer = __nccwpck_require__(181)
+var Buffer = buffer.Buffer
+
+// alternative to using Object.keys for old browsers
+function copyProps (src, dst) {
+  for (var key in src) {
+    dst[key] = src[key]
+  }
+}
+if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow) {
+  module.exports = buffer
+} else {
+  // Copy properties from require('buffer')
+  copyProps(buffer, exports)
+  exports.Buffer = SafeBuffer
+}
+
+function SafeBuffer (arg, encodingOrOffset, length) {
+  return Buffer(arg, encodingOrOffset, length)
+}
+
+SafeBuffer.prototype = Object.create(Buffer.prototype)
+
+// Copy static methods from Buffer
+copyProps(Buffer, SafeBuffer)
+
+SafeBuffer.from = function (arg, encodingOrOffset, length) {
+  if (typeof arg === 'number') {
+    throw new TypeError('Argument must not be a number')
+  }
+  return Buffer(arg, encodingOrOffset, length)
+}
+
+SafeBuffer.alloc = function (size, fill, encoding) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  var buf = Buffer(size)
+  if (fill !== undefined) {
+    if (typeof encoding === 'string') {
+      buf.fill(fill, encoding)
+    } else {
+      buf.fill(fill)
+    }
+  } else {
+    buf.fill(0)
+  }
+  return buf
+}
+
+SafeBuffer.allocUnsafe = function (size) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  return Buffer(size)
+}
+
+SafeBuffer.allocUnsafeSlow = function (size) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  return buffer.SlowBuffer(size)
+}
+
+
+/***/ }),
+
 /***/ 1737:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -19321,6 +22775,2721 @@ if (!safer.constants) {
 }
 
 module.exports = safer
+
+
+/***/ }),
+
+/***/ 6222:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const ANY = Symbol('SemVer ANY')
+// hoisted class for cyclic dependency
+class Comparator {
+  static get ANY () {
+    return ANY
+  }
+
+  constructor (comp, options) {
+    options = parseOptions(options)
+
+    if (comp instanceof Comparator) {
+      if (comp.loose === !!options.loose) {
+        return comp
+      } else {
+        comp = comp.value
+      }
+    }
+
+    comp = comp.trim().split(/\s+/).join(' ')
+    debug('comparator', comp, options)
+    this.options = options
+    this.loose = !!options.loose
+    this.parse(comp)
+
+    if (this.semver === ANY) {
+      this.value = ''
+    } else {
+      this.value = this.operator + this.semver.version
+    }
+
+    debug('comp', this)
+  }
+
+  parse (comp) {
+    const r = this.options.loose ? re[t.COMPARATORLOOSE] : re[t.COMPARATOR]
+    const m = comp.match(r)
+
+    if (!m) {
+      throw new TypeError(`Invalid comparator: ${comp}`)
+    }
+
+    this.operator = m[1] !== undefined ? m[1] : ''
+    if (this.operator === '=') {
+      this.operator = ''
+    }
+
+    // if it literally is just '>' or '' then allow anything.
+    if (!m[2]) {
+      this.semver = ANY
+    } else {
+      this.semver = new SemVer(m[2], this.options.loose)
+    }
+  }
+
+  toString () {
+    return this.value
+  }
+
+  test (version) {
+    debug('Comparator.test', version, this.options.loose)
+
+    if (this.semver === ANY || version === ANY) {
+      return true
+    }
+
+    if (typeof version === 'string') {
+      try {
+        version = new SemVer(version, this.options)
+      } catch (er) {
+        return false
+      }
+    }
+
+    return cmp(version, this.operator, this.semver, this.options)
+  }
+
+  intersects (comp, options) {
+    if (!(comp instanceof Comparator)) {
+      throw new TypeError('a Comparator is required')
+    }
+
+    if (this.operator === '') {
+      if (this.value === '') {
+        return true
+      }
+      return new Range(comp.value, options).test(this.value)
+    } else if (comp.operator === '') {
+      if (comp.value === '') {
+        return true
+      }
+      return new Range(this.value, options).test(comp.semver)
+    }
+
+    options = parseOptions(options)
+
+    // Special cases where nothing can possibly be lower
+    if (options.includePrerelease &&
+      (this.value === '<0.0.0-0' || comp.value === '<0.0.0-0')) {
+      return false
+    }
+    if (!options.includePrerelease &&
+      (this.value.startsWith('<0.0.0') || comp.value.startsWith('<0.0.0'))) {
+      return false
+    }
+
+    // Same direction increasing (> or >=)
+    if (this.operator.startsWith('>') && comp.operator.startsWith('>')) {
+      return true
+    }
+    // Same direction decreasing (< or <=)
+    if (this.operator.startsWith('<') && comp.operator.startsWith('<')) {
+      return true
+    }
+    // same SemVer and both sides are inclusive (<= or >=)
+    if (
+      (this.semver.version === comp.semver.version) &&
+      this.operator.includes('=') && comp.operator.includes('=')) {
+      return true
+    }
+    // opposite directions less than
+    if (cmp(this.semver, '<', comp.semver, options) &&
+      this.operator.startsWith('>') && comp.operator.startsWith('<')) {
+      return true
+    }
+    // opposite directions greater than
+    if (cmp(this.semver, '>', comp.semver, options) &&
+      this.operator.startsWith('<') && comp.operator.startsWith('>')) {
+      return true
+    }
+    return false
+  }
+}
+
+module.exports = Comparator
+
+const parseOptions = __nccwpck_require__(977)
+const { safeRe: re, t } = __nccwpck_require__(5580)
+const cmp = __nccwpck_require__(5358)
+const debug = __nccwpck_require__(1542)
+const SemVer = __nccwpck_require__(4154)
+const Range = __nccwpck_require__(3137)
+
+
+/***/ }),
+
+/***/ 3137:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SPACE_CHARACTERS = /\s+/g
+
+// hoisted class for cyclic dependency
+class Range {
+  constructor (range, options) {
+    options = parseOptions(options)
+
+    if (range instanceof Range) {
+      if (
+        range.loose === !!options.loose &&
+        range.includePrerelease === !!options.includePrerelease
+      ) {
+        return range
+      } else {
+        return new Range(range.raw, options)
+      }
+    }
+
+    if (range instanceof Comparator) {
+      // just put it in the set and return
+      this.raw = range.value
+      this.set = [[range]]
+      this.formatted = undefined
+      return this
+    }
+
+    this.options = options
+    this.loose = !!options.loose
+    this.includePrerelease = !!options.includePrerelease
+
+    // First reduce all whitespace as much as possible so we do not have to rely
+    // on potentially slow regexes like \s*. This is then stored and used for
+    // future error messages as well.
+    this.raw = range.trim().replace(SPACE_CHARACTERS, ' ')
+
+    // First, split on ||
+    this.set = this.raw
+      .split('||')
+      // map the range to a 2d array of comparators
+      .map(r => this.parseRange(r.trim()))
+      // throw out any comparator lists that are empty
+      // this generally means that it was not a valid range, which is allowed
+      // in loose mode, but will still throw if the WHOLE range is invalid.
+      .filter(c => c.length)
+
+    if (!this.set.length) {
+      throw new TypeError(`Invalid SemVer Range: ${this.raw}`)
+    }
+
+    // if we have any that are not the null set, throw out null sets.
+    if (this.set.length > 1) {
+      // keep the first one, in case they're all null sets
+      const first = this.set[0]
+      this.set = this.set.filter(c => !isNullSet(c[0]))
+      if (this.set.length === 0) {
+        this.set = [first]
+      } else if (this.set.length > 1) {
+        // if we have any that are *, then the range is just *
+        for (const c of this.set) {
+          if (c.length === 1 && isAny(c[0])) {
+            this.set = [c]
+            break
+          }
+        }
+      }
+    }
+
+    this.formatted = undefined
+  }
+
+  get range () {
+    if (this.formatted === undefined) {
+      this.formatted = ''
+      for (let i = 0; i < this.set.length; i++) {
+        if (i > 0) {
+          this.formatted += '||'
+        }
+        const comps = this.set[i]
+        for (let k = 0; k < comps.length; k++) {
+          if (k > 0) {
+            this.formatted += ' '
+          }
+          this.formatted += comps[k].toString().trim()
+        }
+      }
+    }
+    return this.formatted
+  }
+
+  format () {
+    return this.range
+  }
+
+  toString () {
+    return this.range
+  }
+
+  parseRange (range) {
+    // memoize range parsing for performance.
+    // this is a very hot path, and fully deterministic.
+    const memoOpts =
+      (this.options.includePrerelease && FLAG_INCLUDE_PRERELEASE) |
+      (this.options.loose && FLAG_LOOSE)
+    const memoKey = memoOpts + ':' + range
+    const cached = cache.get(memoKey)
+    if (cached) {
+      return cached
+    }
+
+    const loose = this.options.loose
+    // `1.2.3 - 1.2.4` => `>=1.2.3 <=1.2.4`
+    const hr = loose ? re[t.HYPHENRANGELOOSE] : re[t.HYPHENRANGE]
+    range = range.replace(hr, hyphenReplace(this.options.includePrerelease))
+    debug('hyphen replace', range)
+
+    // `> 1.2.3 < 1.2.5` => `>1.2.3 <1.2.5`
+    range = range.replace(re[t.COMPARATORTRIM], comparatorTrimReplace)
+    debug('comparator trim', range)
+
+    // `~ 1.2.3` => `~1.2.3`
+    range = range.replace(re[t.TILDETRIM], tildeTrimReplace)
+    debug('tilde trim', range)
+
+    // `^ 1.2.3` => `^1.2.3`
+    range = range.replace(re[t.CARETTRIM], caretTrimReplace)
+    debug('caret trim', range)
+
+    // At this point, the range is completely trimmed and
+    // ready to be split into comparators.
+
+    let rangeList = range
+      .split(' ')
+      .map(comp => parseComparator(comp, this.options))
+      .join(' ')
+      .split(/\s+/)
+      // >=0.0.0 is equivalent to *
+      .map(comp => replaceGTE0(comp, this.options))
+
+    if (loose) {
+      // in loose mode, throw out any that are not valid comparators
+      rangeList = rangeList.filter(comp => {
+        debug('loose invalid filter', comp, this.options)
+        return !!comp.match(re[t.COMPARATORLOOSE])
+      })
+    }
+    debug('range list', rangeList)
+
+    // if any comparators are the null set, then replace with JUST null set
+    // if more than one comparator, remove any * comparators
+    // also, don't include the same comparator more than once
+    const rangeMap = new Map()
+    const comparators = rangeList.map(comp => new Comparator(comp, this.options))
+    for (const comp of comparators) {
+      if (isNullSet(comp)) {
+        return [comp]
+      }
+      rangeMap.set(comp.value, comp)
+    }
+    if (rangeMap.size > 1 && rangeMap.has('')) {
+      rangeMap.delete('')
+    }
+
+    const result = [...rangeMap.values()]
+    cache.set(memoKey, result)
+    return result
+  }
+
+  intersects (range, options) {
+    if (!(range instanceof Range)) {
+      throw new TypeError('a Range is required')
+    }
+
+    return this.set.some((thisComparators) => {
+      return (
+        isSatisfiable(thisComparators, options) &&
+        range.set.some((rangeComparators) => {
+          return (
+            isSatisfiable(rangeComparators, options) &&
+            thisComparators.every((thisComparator) => {
+              return rangeComparators.every((rangeComparator) => {
+                return thisComparator.intersects(rangeComparator, options)
+              })
+            })
+          )
+        })
+      )
+    })
+  }
+
+  // if ANY of the sets match ALL of its comparators, then pass
+  test (version) {
+    if (!version) {
+      return false
+    }
+
+    if (typeof version === 'string') {
+      try {
+        version = new SemVer(version, this.options)
+      } catch (er) {
+        return false
+      }
+    }
+
+    for (let i = 0; i < this.set.length; i++) {
+      if (testSet(this.set[i], version, this.options)) {
+        return true
+      }
+    }
+    return false
+  }
+}
+
+module.exports = Range
+
+const LRU = __nccwpck_require__(5088)
+const cache = new LRU()
+
+const parseOptions = __nccwpck_require__(977)
+const Comparator = __nccwpck_require__(6222)
+const debug = __nccwpck_require__(1542)
+const SemVer = __nccwpck_require__(4154)
+const {
+  safeRe: re,
+  t,
+  comparatorTrimReplace,
+  tildeTrimReplace,
+  caretTrimReplace,
+} = __nccwpck_require__(5580)
+const { FLAG_INCLUDE_PRERELEASE, FLAG_LOOSE } = __nccwpck_require__(4256)
+
+const isNullSet = c => c.value === '<0.0.0-0'
+const isAny = c => c.value === ''
+
+// take a set of comparators and determine whether there
+// exists a version which can satisfy it
+const isSatisfiable = (comparators, options) => {
+  let result = true
+  const remainingComparators = comparators.slice()
+  let testComparator = remainingComparators.pop()
+
+  while (result && remainingComparators.length) {
+    result = remainingComparators.every((otherComparator) => {
+      return testComparator.intersects(otherComparator, options)
+    })
+
+    testComparator = remainingComparators.pop()
+  }
+
+  return result
+}
+
+// comprised of xranges, tildes, stars, and gtlt's at this point.
+// already replaced the hyphen ranges
+// turn into a set of JUST comparators.
+const parseComparator = (comp, options) => {
+  comp = comp.replace(re[t.BUILD], '')
+  debug('comp', comp, options)
+  comp = replaceCarets(comp, options)
+  debug('caret', comp)
+  comp = replaceTildes(comp, options)
+  debug('tildes', comp)
+  comp = replaceXRanges(comp, options)
+  debug('xrange', comp)
+  comp = replaceStars(comp, options)
+  debug('stars', comp)
+  return comp
+}
+
+const isX = id => !id || id.toLowerCase() === 'x' || id === '*'
+
+// ~, ~> --> * (any, kinda silly)
+// ~2, ~2.x, ~2.x.x, ~>2, ~>2.x ~>2.x.x --> >=2.0.0 <3.0.0-0
+// ~2.0, ~2.0.x, ~>2.0, ~>2.0.x --> >=2.0.0 <2.1.0-0
+// ~1.2, ~1.2.x, ~>1.2, ~>1.2.x --> >=1.2.0 <1.3.0-0
+// ~1.2.3, ~>1.2.3 --> >=1.2.3 <1.3.0-0
+// ~1.2.0, ~>1.2.0 --> >=1.2.0 <1.3.0-0
+// ~0.0.1 --> >=0.0.1 <0.1.0-0
+const replaceTildes = (comp, options) => {
+  return comp
+    .trim()
+    .split(/\s+/)
+    .map((c) => replaceTilde(c, options))
+    .join(' ')
+}
+
+const replaceTilde = (comp, options) => {
+  const r = options.loose ? re[t.TILDELOOSE] : re[t.TILDE]
+  return comp.replace(r, (_, M, m, p, pr) => {
+    debug('tilde', comp, _, M, m, p, pr)
+    let ret
+
+    if (isX(M)) {
+      ret = ''
+    } else if (isX(m)) {
+      ret = `>=${M}.0.0 <${+M + 1}.0.0-0`
+    } else if (isX(p)) {
+      // ~1.2 == >=1.2.0 <1.3.0-0
+      ret = `>=${M}.${m}.0 <${M}.${+m + 1}.0-0`
+    } else if (pr) {
+      debug('replaceTilde pr', pr)
+      ret = `>=${M}.${m}.${p}-${pr
+      } <${M}.${+m + 1}.0-0`
+    } else {
+      // ~1.2.3 == >=1.2.3 <1.3.0-0
+      ret = `>=${M}.${m}.${p
+      } <${M}.${+m + 1}.0-0`
+    }
+
+    debug('tilde return', ret)
+    return ret
+  })
+}
+
+// ^ --> * (any, kinda silly)
+// ^2, ^2.x, ^2.x.x --> >=2.0.0 <3.0.0-0
+// ^2.0, ^2.0.x --> >=2.0.0 <3.0.0-0
+// ^1.2, ^1.2.x --> >=1.2.0 <2.0.0-0
+// ^1.2.3 --> >=1.2.3 <2.0.0-0
+// ^1.2.0 --> >=1.2.0 <2.0.0-0
+// ^0.0.1 --> >=0.0.1 <0.0.2-0
+// ^0.1.0 --> >=0.1.0 <0.2.0-0
+const replaceCarets = (comp, options) => {
+  return comp
+    .trim()
+    .split(/\s+/)
+    .map((c) => replaceCaret(c, options))
+    .join(' ')
+}
+
+const replaceCaret = (comp, options) => {
+  debug('caret', comp, options)
+  const r = options.loose ? re[t.CARETLOOSE] : re[t.CARET]
+  const z = options.includePrerelease ? '-0' : ''
+  return comp.replace(r, (_, M, m, p, pr) => {
+    debug('caret', comp, _, M, m, p, pr)
+    let ret
+
+    if (isX(M)) {
+      ret = ''
+    } else if (isX(m)) {
+      ret = `>=${M}.0.0${z} <${+M + 1}.0.0-0`
+    } else if (isX(p)) {
+      if (M === '0') {
+        ret = `>=${M}.${m}.0${z} <${M}.${+m + 1}.0-0`
+      } else {
+        ret = `>=${M}.${m}.0${z} <${+M + 1}.0.0-0`
+      }
+    } else if (pr) {
+      debug('replaceCaret pr', pr)
+      if (M === '0') {
+        if (m === '0') {
+          ret = `>=${M}.${m}.${p}-${pr
+          } <${M}.${m}.${+p + 1}-0`
+        } else {
+          ret = `>=${M}.${m}.${p}-${pr
+          } <${M}.${+m + 1}.0-0`
+        }
+      } else {
+        ret = `>=${M}.${m}.${p}-${pr
+        } <${+M + 1}.0.0-0`
+      }
+    } else {
+      debug('no pr')
+      if (M === '0') {
+        if (m === '0') {
+          ret = `>=${M}.${m}.${p
+          }${z} <${M}.${m}.${+p + 1}-0`
+        } else {
+          ret = `>=${M}.${m}.${p
+          }${z} <${M}.${+m + 1}.0-0`
+        }
+      } else {
+        ret = `>=${M}.${m}.${p
+        } <${+M + 1}.0.0-0`
+      }
+    }
+
+    debug('caret return', ret)
+    return ret
+  })
+}
+
+const replaceXRanges = (comp, options) => {
+  debug('replaceXRanges', comp, options)
+  return comp
+    .split(/\s+/)
+    .map((c) => replaceXRange(c, options))
+    .join(' ')
+}
+
+const replaceXRange = (comp, options) => {
+  comp = comp.trim()
+  const r = options.loose ? re[t.XRANGELOOSE] : re[t.XRANGE]
+  return comp.replace(r, (ret, gtlt, M, m, p, pr) => {
+    debug('xRange', comp, ret, gtlt, M, m, p, pr)
+    const xM = isX(M)
+    const xm = xM || isX(m)
+    const xp = xm || isX(p)
+    const anyX = xp
+
+    if (gtlt === '=' && anyX) {
+      gtlt = ''
+    }
+
+    // if we're including prereleases in the match, then we need
+    // to fix this to -0, the lowest possible prerelease value
+    pr = options.includePrerelease ? '-0' : ''
+
+    if (xM) {
+      if (gtlt === '>' || gtlt === '<') {
+        // nothing is allowed
+        ret = '<0.0.0-0'
+      } else {
+        // nothing is forbidden
+        ret = '*'
+      }
+    } else if (gtlt && anyX) {
+      // we know patch is an x, because we have any x at all.
+      // replace X with 0
+      if (xm) {
+        m = 0
+      }
+      p = 0
+
+      if (gtlt === '>') {
+        // >1 => >=2.0.0
+        // >1.2 => >=1.3.0
+        gtlt = '>='
+        if (xm) {
+          M = +M + 1
+          m = 0
+          p = 0
+        } else {
+          m = +m + 1
+          p = 0
+        }
+      } else if (gtlt === '<=') {
+        // <=0.7.x is actually <0.8.0, since any 0.7.x should
+        // pass.  Similarly, <=7.x is actually <8.0.0, etc.
+        gtlt = '<'
+        if (xm) {
+          M = +M + 1
+        } else {
+          m = +m + 1
+        }
+      }
+
+      if (gtlt === '<') {
+        pr = '-0'
+      }
+
+      ret = `${gtlt + M}.${m}.${p}${pr}`
+    } else if (xm) {
+      ret = `>=${M}.0.0${pr} <${+M + 1}.0.0-0`
+    } else if (xp) {
+      ret = `>=${M}.${m}.0${pr
+      } <${M}.${+m + 1}.0-0`
+    }
+
+    debug('xRange return', ret)
+
+    return ret
+  })
+}
+
+// Because * is AND-ed with everything else in the comparator,
+// and '' means "any version", just remove the *s entirely.
+const replaceStars = (comp, options) => {
+  debug('replaceStars', comp, options)
+  // Looseness is ignored here.  star is always as loose as it gets!
+  return comp
+    .trim()
+    .replace(re[t.STAR], '')
+}
+
+const replaceGTE0 = (comp, options) => {
+  debug('replaceGTE0', comp, options)
+  return comp
+    .trim()
+    .replace(re[options.includePrerelease ? t.GTE0PRE : t.GTE0], '')
+}
+
+// This function is passed to string.replace(re[t.HYPHENRANGE])
+// M, m, patch, prerelease, build
+// 1.2 - 3.4.5 => >=1.2.0 <=3.4.5
+// 1.2.3 - 3.4 => >=1.2.0 <3.5.0-0 Any 3.4.x will do
+// 1.2 - 3.4 => >=1.2.0 <3.5.0-0
+// TODO build?
+const hyphenReplace = incPr => ($0,
+  from, fM, fm, fp, fpr, fb,
+  to, tM, tm, tp, tpr) => {
+  if (isX(fM)) {
+    from = ''
+  } else if (isX(fm)) {
+    from = `>=${fM}.0.0${incPr ? '-0' : ''}`
+  } else if (isX(fp)) {
+    from = `>=${fM}.${fm}.0${incPr ? '-0' : ''}`
+  } else if (fpr) {
+    from = `>=${from}`
+  } else {
+    from = `>=${from}${incPr ? '-0' : ''}`
+  }
+
+  if (isX(tM)) {
+    to = ''
+  } else if (isX(tm)) {
+    to = `<${+tM + 1}.0.0-0`
+  } else if (isX(tp)) {
+    to = `<${tM}.${+tm + 1}.0-0`
+  } else if (tpr) {
+    to = `<=${tM}.${tm}.${tp}-${tpr}`
+  } else if (incPr) {
+    to = `<${tM}.${tm}.${+tp + 1}-0`
+  } else {
+    to = `<=${to}`
+  }
+
+  return `${from} ${to}`.trim()
+}
+
+const testSet = (set, version, options) => {
+  for (let i = 0; i < set.length; i++) {
+    if (!set[i].test(version)) {
+      return false
+    }
+  }
+
+  if (version.prerelease.length && !options.includePrerelease) {
+    // Find the set of versions that are allowed to have prereleases
+    // For example, ^1.2.3-pr.1 desugars to >=1.2.3-pr.1 <2.0.0
+    // That should allow `1.2.3-pr.2` to pass.
+    // However, `1.2.4-alpha.notready` should NOT be allowed,
+    // even though it's within the range set by the comparators.
+    for (let i = 0; i < set.length; i++) {
+      debug(set[i].semver)
+      if (set[i].semver === Comparator.ANY) {
+        continue
+      }
+
+      if (set[i].semver.prerelease.length > 0) {
+        const allowed = set[i].semver
+        if (allowed.major === version.major &&
+            allowed.minor === version.minor &&
+            allowed.patch === version.patch) {
+          return true
+        }
+      }
+    }
+
+    // Version has a -pre, but it's not one of the ones we like.
+    return false
+  }
+
+  return true
+}
+
+
+/***/ }),
+
+/***/ 4154:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const debug = __nccwpck_require__(1542)
+const { MAX_LENGTH, MAX_SAFE_INTEGER } = __nccwpck_require__(4256)
+const { safeRe: re, t } = __nccwpck_require__(5580)
+
+const parseOptions = __nccwpck_require__(977)
+const { compareIdentifiers } = __nccwpck_require__(1713)
+class SemVer {
+  constructor (version, options) {
+    options = parseOptions(options)
+
+    if (version instanceof SemVer) {
+      if (version.loose === !!options.loose &&
+        version.includePrerelease === !!options.includePrerelease) {
+        return version
+      } else {
+        version = version.version
+      }
+    } else if (typeof version !== 'string') {
+      throw new TypeError(`Invalid version. Must be a string. Got type "${typeof version}".`)
+    }
+
+    if (version.length > MAX_LENGTH) {
+      throw new TypeError(
+        `version is longer than ${MAX_LENGTH} characters`
+      )
+    }
+
+    debug('SemVer', version, options)
+    this.options = options
+    this.loose = !!options.loose
+    // this isn't actually relevant for versions, but keep it so that we
+    // don't run into trouble passing this.options around.
+    this.includePrerelease = !!options.includePrerelease
+
+    const m = version.trim().match(options.loose ? re[t.LOOSE] : re[t.FULL])
+
+    if (!m) {
+      throw new TypeError(`Invalid Version: ${version}`)
+    }
+
+    this.raw = version
+
+    // these are actually numbers
+    this.major = +m[1]
+    this.minor = +m[2]
+    this.patch = +m[3]
+
+    if (this.major > MAX_SAFE_INTEGER || this.major < 0) {
+      throw new TypeError('Invalid major version')
+    }
+
+    if (this.minor > MAX_SAFE_INTEGER || this.minor < 0) {
+      throw new TypeError('Invalid minor version')
+    }
+
+    if (this.patch > MAX_SAFE_INTEGER || this.patch < 0) {
+      throw new TypeError('Invalid patch version')
+    }
+
+    // numberify any prerelease numeric ids
+    if (!m[4]) {
+      this.prerelease = []
+    } else {
+      this.prerelease = m[4].split('.').map((id) => {
+        if (/^[0-9]+$/.test(id)) {
+          const num = +id
+          if (num >= 0 && num < MAX_SAFE_INTEGER) {
+            return num
+          }
+        }
+        return id
+      })
+    }
+
+    this.build = m[5] ? m[5].split('.') : []
+    this.format()
+  }
+
+  format () {
+    this.version = `${this.major}.${this.minor}.${this.patch}`
+    if (this.prerelease.length) {
+      this.version += `-${this.prerelease.join('.')}`
+    }
+    return this.version
+  }
+
+  toString () {
+    return this.version
+  }
+
+  compare (other) {
+    debug('SemVer.compare', this.version, this.options, other)
+    if (!(other instanceof SemVer)) {
+      if (typeof other === 'string' && other === this.version) {
+        return 0
+      }
+      other = new SemVer(other, this.options)
+    }
+
+    if (other.version === this.version) {
+      return 0
+    }
+
+    return this.compareMain(other) || this.comparePre(other)
+  }
+
+  compareMain (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options)
+    }
+
+    if (this.major < other.major) {
+      return -1
+    }
+    if (this.major > other.major) {
+      return 1
+    }
+    if (this.minor < other.minor) {
+      return -1
+    }
+    if (this.minor > other.minor) {
+      return 1
+    }
+    if (this.patch < other.patch) {
+      return -1
+    }
+    if (this.patch > other.patch) {
+      return 1
+    }
+    return 0
+  }
+
+  comparePre (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options)
+    }
+
+    // NOT having a prerelease is > having one
+    if (this.prerelease.length && !other.prerelease.length) {
+      return -1
+    } else if (!this.prerelease.length && other.prerelease.length) {
+      return 1
+    } else if (!this.prerelease.length && !other.prerelease.length) {
+      return 0
+    }
+
+    let i = 0
+    do {
+      const a = this.prerelease[i]
+      const b = other.prerelease[i]
+      debug('prerelease compare', i, a, b)
+      if (a === undefined && b === undefined) {
+        return 0
+      } else if (b === undefined) {
+        return 1
+      } else if (a === undefined) {
+        return -1
+      } else if (a === b) {
+        continue
+      } else {
+        return compareIdentifiers(a, b)
+      }
+    } while (++i)
+  }
+
+  compareBuild (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options)
+    }
+
+    let i = 0
+    do {
+      const a = this.build[i]
+      const b = other.build[i]
+      debug('build compare', i, a, b)
+      if (a === undefined && b === undefined) {
+        return 0
+      } else if (b === undefined) {
+        return 1
+      } else if (a === undefined) {
+        return -1
+      } else if (a === b) {
+        continue
+      } else {
+        return compareIdentifiers(a, b)
+      }
+    } while (++i)
+  }
+
+  // preminor will bump the version up to the next minor release, and immediately
+  // down to pre-release. premajor and prepatch work the same way.
+  inc (release, identifier, identifierBase) {
+    if (release.startsWith('pre')) {
+      if (!identifier && identifierBase === false) {
+        throw new Error('invalid increment argument: identifier is empty')
+      }
+      // Avoid an invalid semver results
+      if (identifier) {
+        const match = `-${identifier}`.match(this.options.loose ? re[t.PRERELEASELOOSE] : re[t.PRERELEASE])
+        if (!match || match[1] !== identifier) {
+          throw new Error(`invalid identifier: ${identifier}`)
+        }
+      }
+    }
+
+    switch (release) {
+      case 'premajor':
+        this.prerelease.length = 0
+        this.patch = 0
+        this.minor = 0
+        this.major++
+        this.inc('pre', identifier, identifierBase)
+        break
+      case 'preminor':
+        this.prerelease.length = 0
+        this.patch = 0
+        this.minor++
+        this.inc('pre', identifier, identifierBase)
+        break
+      case 'prepatch':
+        // If this is already a prerelease, it will bump to the next version
+        // drop any prereleases that might already exist, since they are not
+        // relevant at this point.
+        this.prerelease.length = 0
+        this.inc('patch', identifier, identifierBase)
+        this.inc('pre', identifier, identifierBase)
+        break
+      // If the input is a non-prerelease version, this acts the same as
+      // prepatch.
+      case 'prerelease':
+        if (this.prerelease.length === 0) {
+          this.inc('patch', identifier, identifierBase)
+        }
+        this.inc('pre', identifier, identifierBase)
+        break
+      case 'release':
+        if (this.prerelease.length === 0) {
+          throw new Error(`version ${this.raw} is not a prerelease`)
+        }
+        this.prerelease.length = 0
+        break
+
+      case 'major':
+        // If this is a pre-major version, bump up to the same major version.
+        // Otherwise increment major.
+        // 1.0.0-5 bumps to 1.0.0
+        // 1.1.0 bumps to 2.0.0
+        if (
+          this.minor !== 0 ||
+          this.patch !== 0 ||
+          this.prerelease.length === 0
+        ) {
+          this.major++
+        }
+        this.minor = 0
+        this.patch = 0
+        this.prerelease = []
+        break
+      case 'minor':
+        // If this is a pre-minor version, bump up to the same minor version.
+        // Otherwise increment minor.
+        // 1.2.0-5 bumps to 1.2.0
+        // 1.2.1 bumps to 1.3.0
+        if (this.patch !== 0 || this.prerelease.length === 0) {
+          this.minor++
+        }
+        this.patch = 0
+        this.prerelease = []
+        break
+      case 'patch':
+        // If this is not a pre-release version, it will increment the patch.
+        // If it is a pre-release it will bump up to the same patch version.
+        // 1.2.0-5 patches to 1.2.0
+        // 1.2.0 patches to 1.2.1
+        if (this.prerelease.length === 0) {
+          this.patch++
+        }
+        this.prerelease = []
+        break
+      // This probably shouldn't be used publicly.
+      // 1.0.0 'pre' would become 1.0.0-0 which is the wrong direction.
+      case 'pre': {
+        const base = Number(identifierBase) ? 1 : 0
+
+        if (this.prerelease.length === 0) {
+          this.prerelease = [base]
+        } else {
+          let i = this.prerelease.length
+          while (--i >= 0) {
+            if (typeof this.prerelease[i] === 'number') {
+              this.prerelease[i]++
+              i = -2
+            }
+          }
+          if (i === -1) {
+            // didn't increment anything
+            if (identifier === this.prerelease.join('.') && identifierBase === false) {
+              throw new Error('invalid increment argument: identifier already exists')
+            }
+            this.prerelease.push(base)
+          }
+        }
+        if (identifier) {
+          // 1.2.0-beta.1 bumps to 1.2.0-beta.2,
+          // 1.2.0-beta.fooblz or 1.2.0-beta bumps to 1.2.0-beta.0
+          let prerelease = [identifier, base]
+          if (identifierBase === false) {
+            prerelease = [identifier]
+          }
+          if (compareIdentifiers(this.prerelease[0], identifier) === 0) {
+            if (isNaN(this.prerelease[1])) {
+              this.prerelease = prerelease
+            }
+          } else {
+            this.prerelease = prerelease
+          }
+        }
+        break
+      }
+      default:
+        throw new Error(`invalid increment argument: ${release}`)
+    }
+    this.raw = this.format()
+    if (this.build.length) {
+      this.raw += `+${this.build.join('.')}`
+    }
+    return this
+  }
+}
+
+module.exports = SemVer
+
+
+/***/ }),
+
+/***/ 9956:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const parse = __nccwpck_require__(3854)
+const clean = (version, options) => {
+  const s = parse(version.trim().replace(/^[=v]+/, ''), options)
+  return s ? s.version : null
+}
+module.exports = clean
+
+
+/***/ }),
+
+/***/ 5358:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const eq = __nccwpck_require__(2563)
+const neq = __nccwpck_require__(5969)
+const gt = __nccwpck_require__(2098)
+const gte = __nccwpck_require__(5851)
+const lt = __nccwpck_require__(5045)
+const lte = __nccwpck_require__(5462)
+
+const cmp = (a, op, b, loose) => {
+  switch (op) {
+    case '===':
+      if (typeof a === 'object') {
+        a = a.version
+      }
+      if (typeof b === 'object') {
+        b = b.version
+      }
+      return a === b
+
+    case '!==':
+      if (typeof a === 'object') {
+        a = a.version
+      }
+      if (typeof b === 'object') {
+        b = b.version
+      }
+      return a !== b
+
+    case '':
+    case '=':
+    case '==':
+      return eq(a, b, loose)
+
+    case '!=':
+      return neq(a, b, loose)
+
+    case '>':
+      return gt(a, b, loose)
+
+    case '>=':
+      return gte(a, b, loose)
+
+    case '<':
+      return lt(a, b, loose)
+
+    case '<=':
+      return lte(a, b, loose)
+
+    default:
+      throw new TypeError(`Invalid operator: ${op}`)
+  }
+}
+module.exports = cmp
+
+
+/***/ }),
+
+/***/ 7420:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const parse = __nccwpck_require__(3854)
+const { safeRe: re, t } = __nccwpck_require__(5580)
+
+const coerce = (version, options) => {
+  if (version instanceof SemVer) {
+    return version
+  }
+
+  if (typeof version === 'number') {
+    version = String(version)
+  }
+
+  if (typeof version !== 'string') {
+    return null
+  }
+
+  options = options || {}
+
+  let match = null
+  if (!options.rtl) {
+    match = version.match(options.includePrerelease ? re[t.COERCEFULL] : re[t.COERCE])
+  } else {
+    // Find the right-most coercible string that does not share
+    // a terminus with a more left-ward coercible string.
+    // Eg, '1.2.3.4' wants to coerce '2.3.4', not '3.4' or '4'
+    // With includePrerelease option set, '1.2.3.4-rc' wants to coerce '2.3.4-rc', not '2.3.4'
+    //
+    // Walk through the string checking with a /g regexp
+    // Manually set the index so as to pick up overlapping matches.
+    // Stop when we get a match that ends at the string end, since no
+    // coercible string can be more right-ward without the same terminus.
+    const coerceRtlRegex = options.includePrerelease ? re[t.COERCERTLFULL] : re[t.COERCERTL]
+    let next
+    while ((next = coerceRtlRegex.exec(version)) &&
+        (!match || match.index + match[0].length !== version.length)
+    ) {
+      if (!match ||
+            next.index + next[0].length !== match.index + match[0].length) {
+        match = next
+      }
+      coerceRtlRegex.lastIndex = next.index + next[1].length + next[2].length
+    }
+    // leave it in a clean state
+    coerceRtlRegex.lastIndex = -1
+  }
+
+  if (match === null) {
+    return null
+  }
+
+  const major = match[2]
+  const minor = match[3] || '0'
+  const patch = match[4] || '0'
+  const prerelease = options.includePrerelease && match[5] ? `-${match[5]}` : ''
+  const build = options.includePrerelease && match[6] ? `+${match[6]}` : ''
+
+  return parse(`${major}.${minor}.${patch}${prerelease}${build}`, options)
+}
+module.exports = coerce
+
+
+/***/ }),
+
+/***/ 7083:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const compareBuild = (a, b, loose) => {
+  const versionA = new SemVer(a, loose)
+  const versionB = new SemVer(b, loose)
+  return versionA.compare(versionB) || versionA.compareBuild(versionB)
+}
+module.exports = compareBuild
+
+
+/***/ }),
+
+/***/ 825:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const compareLoose = (a, b) => compare(a, b, true)
+module.exports = compareLoose
+
+
+/***/ }),
+
+/***/ 1306:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const compare = (a, b, loose) =>
+  new SemVer(a, loose).compare(new SemVer(b, loose))
+
+module.exports = compare
+
+
+/***/ }),
+
+/***/ 4962:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const parse = __nccwpck_require__(3854)
+
+const diff = (version1, version2) => {
+  const v1 = parse(version1, null, true)
+  const v2 = parse(version2, null, true)
+  const comparison = v1.compare(v2)
+
+  if (comparison === 0) {
+    return null
+  }
+
+  const v1Higher = comparison > 0
+  const highVersion = v1Higher ? v1 : v2
+  const lowVersion = v1Higher ? v2 : v1
+  const highHasPre = !!highVersion.prerelease.length
+  const lowHasPre = !!lowVersion.prerelease.length
+
+  if (lowHasPre && !highHasPre) {
+    // Going from prerelease -> no prerelease requires some special casing
+
+    // If the low version has only a major, then it will always be a major
+    // Some examples:
+    // 1.0.0-1 -> 1.0.0
+    // 1.0.0-1 -> 1.1.1
+    // 1.0.0-1 -> 2.0.0
+    if (!lowVersion.patch && !lowVersion.minor) {
+      return 'major'
+    }
+
+    // If the main part has no difference
+    if (lowVersion.compareMain(highVersion) === 0) {
+      if (lowVersion.minor && !lowVersion.patch) {
+        return 'minor'
+      }
+      return 'patch'
+    }
+  }
+
+  // add the `pre` prefix if we are going to a prerelease version
+  const prefix = highHasPre ? 'pre' : ''
+
+  if (v1.major !== v2.major) {
+    return prefix + 'major'
+  }
+
+  if (v1.minor !== v2.minor) {
+    return prefix + 'minor'
+  }
+
+  if (v1.patch !== v2.patch) {
+    return prefix + 'patch'
+  }
+
+  // high and low are prereleases
+  return 'prerelease'
+}
+
+module.exports = diff
+
+
+/***/ }),
+
+/***/ 2563:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const eq = (a, b, loose) => compare(a, b, loose) === 0
+module.exports = eq
+
+
+/***/ }),
+
+/***/ 2098:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const gt = (a, b, loose) => compare(a, b, loose) > 0
+module.exports = gt
+
+
+/***/ }),
+
+/***/ 5851:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const gte = (a, b, loose) => compare(a, b, loose) >= 0
+module.exports = gte
+
+
+/***/ }),
+
+/***/ 2341:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+
+const inc = (version, release, options, identifier, identifierBase) => {
+  if (typeof (options) === 'string') {
+    identifierBase = identifier
+    identifier = options
+    options = undefined
+  }
+
+  try {
+    return new SemVer(
+      version instanceof SemVer ? version.version : version,
+      options
+    ).inc(release, identifier, identifierBase).version
+  } catch (er) {
+    return null
+  }
+}
+module.exports = inc
+
+
+/***/ }),
+
+/***/ 5045:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const lt = (a, b, loose) => compare(a, b, loose) < 0
+module.exports = lt
+
+
+/***/ }),
+
+/***/ 5462:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const lte = (a, b, loose) => compare(a, b, loose) <= 0
+module.exports = lte
+
+
+/***/ }),
+
+/***/ 6468:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const major = (a, loose) => new SemVer(a, loose).major
+module.exports = major
+
+
+/***/ }),
+
+/***/ 7032:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const minor = (a, loose) => new SemVer(a, loose).minor
+module.exports = minor
+
+
+/***/ }),
+
+/***/ 5969:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const neq = (a, b, loose) => compare(a, b, loose) !== 0
+module.exports = neq
+
+
+/***/ }),
+
+/***/ 3854:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const parse = (version, options, throwErrors = false) => {
+  if (version instanceof SemVer) {
+    return version
+  }
+  try {
+    return new SemVer(version, options)
+  } catch (er) {
+    if (!throwErrors) {
+      return null
+    }
+    throw er
+  }
+}
+
+module.exports = parse
+
+
+/***/ }),
+
+/***/ 6447:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const patch = (a, loose) => new SemVer(a, loose).patch
+module.exports = patch
+
+
+/***/ }),
+
+/***/ 8359:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const parse = __nccwpck_require__(3854)
+const prerelease = (version, options) => {
+  const parsed = parse(version, options)
+  return (parsed && parsed.prerelease.length) ? parsed.prerelease : null
+}
+module.exports = prerelease
+
+
+/***/ }),
+
+/***/ 6156:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compare = __nccwpck_require__(1306)
+const rcompare = (a, b, loose) => compare(b, a, loose)
+module.exports = rcompare
+
+
+/***/ }),
+
+/***/ 2659:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compareBuild = __nccwpck_require__(7083)
+const rsort = (list, loose) => list.sort((a, b) => compareBuild(b, a, loose))
+module.exports = rsort
+
+
+/***/ }),
+
+/***/ 7575:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const Range = __nccwpck_require__(3137)
+const satisfies = (version, range, options) => {
+  try {
+    range = new Range(range, options)
+  } catch (er) {
+    return false
+  }
+  return range.test(version)
+}
+module.exports = satisfies
+
+
+/***/ }),
+
+/***/ 2397:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const compareBuild = __nccwpck_require__(7083)
+const sort = (list, loose) => list.sort((a, b) => compareBuild(a, b, loose))
+module.exports = sort
+
+
+/***/ }),
+
+/***/ 8691:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const parse = __nccwpck_require__(3854)
+const valid = (version, options) => {
+  const v = parse(version, options)
+  return v ? v.version : null
+}
+module.exports = valid
+
+
+/***/ }),
+
+/***/ 9419:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+// just pre-load all the stuff that index.js lazily exports
+const internalRe = __nccwpck_require__(5580)
+const constants = __nccwpck_require__(4256)
+const SemVer = __nccwpck_require__(4154)
+const identifiers = __nccwpck_require__(1713)
+const parse = __nccwpck_require__(3854)
+const valid = __nccwpck_require__(8691)
+const clean = __nccwpck_require__(9956)
+const inc = __nccwpck_require__(2341)
+const diff = __nccwpck_require__(4962)
+const major = __nccwpck_require__(6468)
+const minor = __nccwpck_require__(7032)
+const patch = __nccwpck_require__(6447)
+const prerelease = __nccwpck_require__(8359)
+const compare = __nccwpck_require__(1306)
+const rcompare = __nccwpck_require__(6156)
+const compareLoose = __nccwpck_require__(825)
+const compareBuild = __nccwpck_require__(7083)
+const sort = __nccwpck_require__(2397)
+const rsort = __nccwpck_require__(2659)
+const gt = __nccwpck_require__(2098)
+const lt = __nccwpck_require__(5045)
+const eq = __nccwpck_require__(2563)
+const neq = __nccwpck_require__(5969)
+const gte = __nccwpck_require__(5851)
+const lte = __nccwpck_require__(5462)
+const cmp = __nccwpck_require__(5358)
+const coerce = __nccwpck_require__(7420)
+const Comparator = __nccwpck_require__(6222)
+const Range = __nccwpck_require__(3137)
+const satisfies = __nccwpck_require__(7575)
+const toComparators = __nccwpck_require__(4377)
+const maxSatisfying = __nccwpck_require__(4150)
+const minSatisfying = __nccwpck_require__(2420)
+const minVersion = __nccwpck_require__(7815)
+const validRange = __nccwpck_require__(8072)
+const outside = __nccwpck_require__(4421)
+const gtr = __nccwpck_require__(7173)
+const ltr = __nccwpck_require__(2156)
+const intersects = __nccwpck_require__(2150)
+const simplifyRange = __nccwpck_require__(3963)
+const subset = __nccwpck_require__(826)
+module.exports = {
+  parse,
+  valid,
+  clean,
+  inc,
+  diff,
+  major,
+  minor,
+  patch,
+  prerelease,
+  compare,
+  rcompare,
+  compareLoose,
+  compareBuild,
+  sort,
+  rsort,
+  gt,
+  lt,
+  eq,
+  neq,
+  gte,
+  lte,
+  cmp,
+  coerce,
+  Comparator,
+  Range,
+  satisfies,
+  toComparators,
+  maxSatisfying,
+  minSatisfying,
+  minVersion,
+  validRange,
+  outside,
+  gtr,
+  ltr,
+  intersects,
+  simplifyRange,
+  subset,
+  SemVer,
+  re: internalRe.re,
+  src: internalRe.src,
+  tokens: internalRe.t,
+  SEMVER_SPEC_VERSION: constants.SEMVER_SPEC_VERSION,
+  RELEASE_TYPES: constants.RELEASE_TYPES,
+  compareIdentifiers: identifiers.compareIdentifiers,
+  rcompareIdentifiers: identifiers.rcompareIdentifiers,
+}
+
+
+/***/ }),
+
+/***/ 4256:
+/***/ ((module) => {
+
+"use strict";
+
+
+// Note: this is the semver.org version of the spec that it implements
+// Not necessarily the package version of this code.
+const SEMVER_SPEC_VERSION = '2.0.0'
+
+const MAX_LENGTH = 256
+const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER ||
+/* istanbul ignore next */ 9007199254740991
+
+// Max safe segment length for coercion.
+const MAX_SAFE_COMPONENT_LENGTH = 16
+
+// Max safe length for a build identifier. The max length minus 6 characters for
+// the shortest version with a build 0.0.0+BUILD.
+const MAX_SAFE_BUILD_LENGTH = MAX_LENGTH - 6
+
+const RELEASE_TYPES = [
+  'major',
+  'premajor',
+  'minor',
+  'preminor',
+  'patch',
+  'prepatch',
+  'prerelease',
+]
+
+module.exports = {
+  MAX_LENGTH,
+  MAX_SAFE_COMPONENT_LENGTH,
+  MAX_SAFE_BUILD_LENGTH,
+  MAX_SAFE_INTEGER,
+  RELEASE_TYPES,
+  SEMVER_SPEC_VERSION,
+  FLAG_INCLUDE_PRERELEASE: 0b001,
+  FLAG_LOOSE: 0b010,
+}
+
+
+/***/ }),
+
+/***/ 1542:
+/***/ ((module) => {
+
+"use strict";
+
+
+const debug = (
+  typeof process === 'object' &&
+  process.env &&
+  process.env.NODE_DEBUG &&
+  /\bsemver\b/i.test(process.env.NODE_DEBUG)
+) ? (...args) => console.error('SEMVER', ...args)
+  : () => {}
+
+module.exports = debug
+
+
+/***/ }),
+
+/***/ 1713:
+/***/ ((module) => {
+
+"use strict";
+
+
+const numeric = /^[0-9]+$/
+const compareIdentifiers = (a, b) => {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a === b ? 0 : a < b ? -1 : 1
+  }
+
+  const anum = numeric.test(a)
+  const bnum = numeric.test(b)
+
+  if (anum && bnum) {
+    a = +a
+    b = +b
+  }
+
+  return a === b ? 0
+    : (anum && !bnum) ? -1
+    : (bnum && !anum) ? 1
+    : a < b ? -1
+    : 1
+}
+
+const rcompareIdentifiers = (a, b) => compareIdentifiers(b, a)
+
+module.exports = {
+  compareIdentifiers,
+  rcompareIdentifiers,
+}
+
+
+/***/ }),
+
+/***/ 5088:
+/***/ ((module) => {
+
+"use strict";
+
+
+class LRUCache {
+  constructor () {
+    this.max = 1000
+    this.map = new Map()
+  }
+
+  get (key) {
+    const value = this.map.get(key)
+    if (value === undefined) {
+      return undefined
+    } else {
+      // Remove the key from the map and add it to the end
+      this.map.delete(key)
+      this.map.set(key, value)
+      return value
+    }
+  }
+
+  delete (key) {
+    return this.map.delete(key)
+  }
+
+  set (key, value) {
+    const deleted = this.delete(key)
+
+    if (!deleted && value !== undefined) {
+      // If cache is full, delete the least recently used item
+      if (this.map.size >= this.max) {
+        const firstKey = this.map.keys().next().value
+        this.delete(firstKey)
+      }
+
+      this.map.set(key, value)
+    }
+
+    return this
+  }
+}
+
+module.exports = LRUCache
+
+
+/***/ }),
+
+/***/ 977:
+/***/ ((module) => {
+
+"use strict";
+
+
+// parse out just the options we care about
+const looseOption = Object.freeze({ loose: true })
+const emptyOpts = Object.freeze({ })
+const parseOptions = options => {
+  if (!options) {
+    return emptyOpts
+  }
+
+  if (typeof options !== 'object') {
+    return looseOption
+  }
+
+  return options
+}
+module.exports = parseOptions
+
+
+/***/ }),
+
+/***/ 5580:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const {
+  MAX_SAFE_COMPONENT_LENGTH,
+  MAX_SAFE_BUILD_LENGTH,
+  MAX_LENGTH,
+} = __nccwpck_require__(4256)
+const debug = __nccwpck_require__(1542)
+exports = module.exports = {}
+
+// The actual regexps go on exports.re
+const re = exports.re = []
+const safeRe = exports.safeRe = []
+const src = exports.src = []
+const safeSrc = exports.safeSrc = []
+const t = exports.t = {}
+let R = 0
+
+const LETTERDASHNUMBER = '[a-zA-Z0-9-]'
+
+// Replace some greedy regex tokens to prevent regex dos issues. These regex are
+// used internally via the safeRe object since all inputs in this library get
+// normalized first to trim and collapse all extra whitespace. The original
+// regexes are exported for userland consumption and lower level usage. A
+// future breaking change could export the safer regex only with a note that
+// all input should have extra whitespace removed.
+const safeRegexReplacements = [
+  ['\\s', 1],
+  ['\\d', MAX_LENGTH],
+  [LETTERDASHNUMBER, MAX_SAFE_BUILD_LENGTH],
+]
+
+const makeSafeRegex = (value) => {
+  for (const [token, max] of safeRegexReplacements) {
+    value = value
+      .split(`${token}*`).join(`${token}{0,${max}}`)
+      .split(`${token}+`).join(`${token}{1,${max}}`)
+  }
+  return value
+}
+
+const createToken = (name, value, isGlobal) => {
+  const safe = makeSafeRegex(value)
+  const index = R++
+  debug(name, index, value)
+  t[name] = index
+  src[index] = value
+  safeSrc[index] = safe
+  re[index] = new RegExp(value, isGlobal ? 'g' : undefined)
+  safeRe[index] = new RegExp(safe, isGlobal ? 'g' : undefined)
+}
+
+// The following Regular Expressions can be used for tokenizing,
+// validating, and parsing SemVer version strings.
+
+// ## Numeric Identifier
+// A single `0`, or a non-zero digit followed by zero or more digits.
+
+createToken('NUMERICIDENTIFIER', '0|[1-9]\\d*')
+createToken('NUMERICIDENTIFIERLOOSE', '\\d+')
+
+// ## Non-numeric Identifier
+// Zero or more digits, followed by a letter or hyphen, and then zero or
+// more letters, digits, or hyphens.
+
+createToken('NONNUMERICIDENTIFIER', `\\d*[a-zA-Z-]${LETTERDASHNUMBER}*`)
+
+// ## Main Version
+// Three dot-separated numeric identifiers.
+
+createToken('MAINVERSION', `(${src[t.NUMERICIDENTIFIER]})\\.` +
+                   `(${src[t.NUMERICIDENTIFIER]})\\.` +
+                   `(${src[t.NUMERICIDENTIFIER]})`)
+
+createToken('MAINVERSIONLOOSE', `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
+                        `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
+                        `(${src[t.NUMERICIDENTIFIERLOOSE]})`)
+
+// ## Pre-release Version Identifier
+// A numeric identifier, or a non-numeric identifier.
+// Non-numeric identifiers include numeric identifiers but can be longer.
+// Therefore non-numeric identifiers must go first.
+
+createToken('PRERELEASEIDENTIFIER', `(?:${src[t.NONNUMERICIDENTIFIER]
+}|${src[t.NUMERICIDENTIFIER]})`)
+
+createToken('PRERELEASEIDENTIFIERLOOSE', `(?:${src[t.NONNUMERICIDENTIFIER]
+}|${src[t.NUMERICIDENTIFIERLOOSE]})`)
+
+// ## Pre-release Version
+// Hyphen, followed by one or more dot-separated pre-release version
+// identifiers.
+
+createToken('PRERELEASE', `(?:-(${src[t.PRERELEASEIDENTIFIER]
+}(?:\\.${src[t.PRERELEASEIDENTIFIER]})*))`)
+
+createToken('PRERELEASELOOSE', `(?:-?(${src[t.PRERELEASEIDENTIFIERLOOSE]
+}(?:\\.${src[t.PRERELEASEIDENTIFIERLOOSE]})*))`)
+
+// ## Build Metadata Identifier
+// Any combination of digits, letters, or hyphens.
+
+createToken('BUILDIDENTIFIER', `${LETTERDASHNUMBER}+`)
+
+// ## Build Metadata
+// Plus sign, followed by one or more period-separated build metadata
+// identifiers.
+
+createToken('BUILD', `(?:\\+(${src[t.BUILDIDENTIFIER]
+}(?:\\.${src[t.BUILDIDENTIFIER]})*))`)
+
+// ## Full Version String
+// A main version, followed optionally by a pre-release version and
+// build metadata.
+
+// Note that the only major, minor, patch, and pre-release sections of
+// the version string are capturing groups.  The build metadata is not a
+// capturing group, because it should not ever be used in version
+// comparison.
+
+createToken('FULLPLAIN', `v?${src[t.MAINVERSION]
+}${src[t.PRERELEASE]}?${
+  src[t.BUILD]}?`)
+
+createToken('FULL', `^${src[t.FULLPLAIN]}$`)
+
+// like full, but allows v1.2.3 and =1.2.3, which people do sometimes.
+// also, 1.0.0alpha1 (prerelease without the hyphen) which is pretty
+// common in the npm registry.
+createToken('LOOSEPLAIN', `[v=\\s]*${src[t.MAINVERSIONLOOSE]
+}${src[t.PRERELEASELOOSE]}?${
+  src[t.BUILD]}?`)
+
+createToken('LOOSE', `^${src[t.LOOSEPLAIN]}$`)
+
+createToken('GTLT', '((?:<|>)?=?)')
+
+// Something like "2.*" or "1.2.x".
+// Note that "x.x" is a valid xRange identifer, meaning "any version"
+// Only the first item is strictly required.
+createToken('XRANGEIDENTIFIERLOOSE', `${src[t.NUMERICIDENTIFIERLOOSE]}|x|X|\\*`)
+createToken('XRANGEIDENTIFIER', `${src[t.NUMERICIDENTIFIER]}|x|X|\\*`)
+
+createToken('XRANGEPLAIN', `[v=\\s]*(${src[t.XRANGEIDENTIFIER]})` +
+                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
+                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
+                   `(?:${src[t.PRERELEASE]})?${
+                     src[t.BUILD]}?` +
+                   `)?)?`)
+
+createToken('XRANGEPLAINLOOSE', `[v=\\s]*(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+                        `(?:${src[t.PRERELEASELOOSE]})?${
+                          src[t.BUILD]}?` +
+                        `)?)?`)
+
+createToken('XRANGE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAIN]}$`)
+createToken('XRANGELOOSE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAINLOOSE]}$`)
+
+// Coercion.
+// Extract anything that could conceivably be a part of a valid semver
+createToken('COERCEPLAIN', `${'(^|[^\\d])' +
+              '(\\d{1,'}${MAX_SAFE_COMPONENT_LENGTH}})` +
+              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?` +
+              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?`)
+createToken('COERCE', `${src[t.COERCEPLAIN]}(?:$|[^\\d])`)
+createToken('COERCEFULL', src[t.COERCEPLAIN] +
+              `(?:${src[t.PRERELEASE]})?` +
+              `(?:${src[t.BUILD]})?` +
+              `(?:$|[^\\d])`)
+createToken('COERCERTL', src[t.COERCE], true)
+createToken('COERCERTLFULL', src[t.COERCEFULL], true)
+
+// Tilde ranges.
+// Meaning is "reasonably at or greater than"
+createToken('LONETILDE', '(?:~>?)')
+
+createToken('TILDETRIM', `(\\s*)${src[t.LONETILDE]}\\s+`, true)
+exports.tildeTrimReplace = '$1~'
+
+createToken('TILDE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAIN]}$`)
+createToken('TILDELOOSE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAINLOOSE]}$`)
+
+// Caret ranges.
+// Meaning is "at least and backwards compatible with"
+createToken('LONECARET', '(?:\\^)')
+
+createToken('CARETTRIM', `(\\s*)${src[t.LONECARET]}\\s+`, true)
+exports.caretTrimReplace = '$1^'
+
+createToken('CARET', `^${src[t.LONECARET]}${src[t.XRANGEPLAIN]}$`)
+createToken('CARETLOOSE', `^${src[t.LONECARET]}${src[t.XRANGEPLAINLOOSE]}$`)
+
+// A simple gt/lt/eq thing, or just "" to indicate "any version"
+createToken('COMPARATORLOOSE', `^${src[t.GTLT]}\\s*(${src[t.LOOSEPLAIN]})$|^$`)
+createToken('COMPARATOR', `^${src[t.GTLT]}\\s*(${src[t.FULLPLAIN]})$|^$`)
+
+// An expression to strip any whitespace between the gtlt and the thing
+// it modifies, so that `> 1.2.3` ==> `>1.2.3`
+createToken('COMPARATORTRIM', `(\\s*)${src[t.GTLT]
+}\\s*(${src[t.LOOSEPLAIN]}|${src[t.XRANGEPLAIN]})`, true)
+exports.comparatorTrimReplace = '$1$2$3'
+
+// Something like `1.2.3 - 1.2.4`
+// Note that these all use the loose form, because they'll be
+// checked against either the strict or loose comparator form
+// later.
+createToken('HYPHENRANGE', `^\\s*(${src[t.XRANGEPLAIN]})` +
+                   `\\s+-\\s+` +
+                   `(${src[t.XRANGEPLAIN]})` +
+                   `\\s*$`)
+
+createToken('HYPHENRANGELOOSE', `^\\s*(${src[t.XRANGEPLAINLOOSE]})` +
+                        `\\s+-\\s+` +
+                        `(${src[t.XRANGEPLAINLOOSE]})` +
+                        `\\s*$`)
+
+// Star ranges basically just allow anything at all.
+createToken('STAR', '(<|>)?=?\\s*\\*')
+// >=0.0.0 is like a star
+createToken('GTE0', '^\\s*>=\\s*0\\.0\\.0\\s*$')
+createToken('GTE0PRE', '^\\s*>=\\s*0\\.0\\.0-0\\s*$')
+
+
+/***/ }),
+
+/***/ 7173:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+// Determine if version is greater than all the versions possible in the range.
+const outside = __nccwpck_require__(4421)
+const gtr = (version, range, options) => outside(version, range, '>', options)
+module.exports = gtr
+
+
+/***/ }),
+
+/***/ 2150:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const Range = __nccwpck_require__(3137)
+const intersects = (r1, r2, options) => {
+  r1 = new Range(r1, options)
+  r2 = new Range(r2, options)
+  return r1.intersects(r2, options)
+}
+module.exports = intersects
+
+
+/***/ }),
+
+/***/ 2156:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const outside = __nccwpck_require__(4421)
+// Determine if version is less than all the versions possible in the range
+const ltr = (version, range, options) => outside(version, range, '<', options)
+module.exports = ltr
+
+
+/***/ }),
+
+/***/ 4150:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const Range = __nccwpck_require__(3137)
+
+const maxSatisfying = (versions, range, options) => {
+  let max = null
+  let maxSV = null
+  let rangeObj = null
+  try {
+    rangeObj = new Range(range, options)
+  } catch (er) {
+    return null
+  }
+  versions.forEach((v) => {
+    if (rangeObj.test(v)) {
+      // satisfies(v, range, options)
+      if (!max || maxSV.compare(v) === -1) {
+        // compare(max, v, true)
+        max = v
+        maxSV = new SemVer(max, options)
+      }
+    }
+  })
+  return max
+}
+module.exports = maxSatisfying
+
+
+/***/ }),
+
+/***/ 2420:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const Range = __nccwpck_require__(3137)
+const minSatisfying = (versions, range, options) => {
+  let min = null
+  let minSV = null
+  let rangeObj = null
+  try {
+    rangeObj = new Range(range, options)
+  } catch (er) {
+    return null
+  }
+  versions.forEach((v) => {
+    if (rangeObj.test(v)) {
+      // satisfies(v, range, options)
+      if (!min || minSV.compare(v) === 1) {
+        // compare(min, v, true)
+        min = v
+        minSV = new SemVer(min, options)
+      }
+    }
+  })
+  return min
+}
+module.exports = minSatisfying
+
+
+/***/ }),
+
+/***/ 7815:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const Range = __nccwpck_require__(3137)
+const gt = __nccwpck_require__(2098)
+
+const minVersion = (range, loose) => {
+  range = new Range(range, loose)
+
+  let minver = new SemVer('0.0.0')
+  if (range.test(minver)) {
+    return minver
+  }
+
+  minver = new SemVer('0.0.0-0')
+  if (range.test(minver)) {
+    return minver
+  }
+
+  minver = null
+  for (let i = 0; i < range.set.length; ++i) {
+    const comparators = range.set[i]
+
+    let setMin = null
+    comparators.forEach((comparator) => {
+      // Clone to avoid manipulating the comparator's semver object.
+      const compver = new SemVer(comparator.semver.version)
+      switch (comparator.operator) {
+        case '>':
+          if (compver.prerelease.length === 0) {
+            compver.patch++
+          } else {
+            compver.prerelease.push(0)
+          }
+          compver.raw = compver.format()
+          /* fallthrough */
+        case '':
+        case '>=':
+          if (!setMin || gt(compver, setMin)) {
+            setMin = compver
+          }
+          break
+        case '<':
+        case '<=':
+          /* Ignore maximum versions */
+          break
+        /* istanbul ignore next */
+        default:
+          throw new Error(`Unexpected operation: ${comparator.operator}`)
+      }
+    })
+    if (setMin && (!minver || gt(minver, setMin))) {
+      minver = setMin
+    }
+  }
+
+  if (minver && range.test(minver)) {
+    return minver
+  }
+
+  return null
+}
+module.exports = minVersion
+
+
+/***/ }),
+
+/***/ 4421:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const SemVer = __nccwpck_require__(4154)
+const Comparator = __nccwpck_require__(6222)
+const { ANY } = Comparator
+const Range = __nccwpck_require__(3137)
+const satisfies = __nccwpck_require__(7575)
+const gt = __nccwpck_require__(2098)
+const lt = __nccwpck_require__(5045)
+const lte = __nccwpck_require__(5462)
+const gte = __nccwpck_require__(5851)
+
+const outside = (version, range, hilo, options) => {
+  version = new SemVer(version, options)
+  range = new Range(range, options)
+
+  let gtfn, ltefn, ltfn, comp, ecomp
+  switch (hilo) {
+    case '>':
+      gtfn = gt
+      ltefn = lte
+      ltfn = lt
+      comp = '>'
+      ecomp = '>='
+      break
+    case '<':
+      gtfn = lt
+      ltefn = gte
+      ltfn = gt
+      comp = '<'
+      ecomp = '<='
+      break
+    default:
+      throw new TypeError('Must provide a hilo val of "<" or ">"')
+  }
+
+  // If it satisfies the range it is not outside
+  if (satisfies(version, range, options)) {
+    return false
+  }
+
+  // From now on, variable terms are as if we're in "gtr" mode.
+  // but note that everything is flipped for the "ltr" function.
+
+  for (let i = 0; i < range.set.length; ++i) {
+    const comparators = range.set[i]
+
+    let high = null
+    let low = null
+
+    comparators.forEach((comparator) => {
+      if (comparator.semver === ANY) {
+        comparator = new Comparator('>=0.0.0')
+      }
+      high = high || comparator
+      low = low || comparator
+      if (gtfn(comparator.semver, high.semver, options)) {
+        high = comparator
+      } else if (ltfn(comparator.semver, low.semver, options)) {
+        low = comparator
+      }
+    })
+
+    // If the edge version comparator has a operator then our version
+    // isn't outside it
+    if (high.operator === comp || high.operator === ecomp) {
+      return false
+    }
+
+    // If the lowest version comparator has an operator and our version
+    // is less than it then it isn't higher than the range
+    if ((!low.operator || low.operator === comp) &&
+        ltefn(version, low.semver)) {
+      return false
+    } else if (low.operator === ecomp && ltfn(version, low.semver)) {
+      return false
+    }
+  }
+  return true
+}
+
+module.exports = outside
+
+
+/***/ }),
+
+/***/ 3963:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+// given a set of versions and a range, create a "simplified" range
+// that includes the same versions that the original range does
+// If the original range is shorter than the simplified one, return that.
+const satisfies = __nccwpck_require__(7575)
+const compare = __nccwpck_require__(1306)
+module.exports = (versions, range, options) => {
+  const set = []
+  let first = null
+  let prev = null
+  const v = versions.sort((a, b) => compare(a, b, options))
+  for (const version of v) {
+    const included = satisfies(version, range, options)
+    if (included) {
+      prev = version
+      if (!first) {
+        first = version
+      }
+    } else {
+      if (prev) {
+        set.push([first, prev])
+      }
+      prev = null
+      first = null
+    }
+  }
+  if (first) {
+    set.push([first, null])
+  }
+
+  const ranges = []
+  for (const [min, max] of set) {
+    if (min === max) {
+      ranges.push(min)
+    } else if (!max && min === v[0]) {
+      ranges.push('*')
+    } else if (!max) {
+      ranges.push(`>=${min}`)
+    } else if (min === v[0]) {
+      ranges.push(`<=${max}`)
+    } else {
+      ranges.push(`${min} - ${max}`)
+    }
+  }
+  const simplified = ranges.join(' || ')
+  const original = typeof range.raw === 'string' ? range.raw : String(range)
+  return simplified.length < original.length ? simplified : range
+}
+
+
+/***/ }),
+
+/***/ 826:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const Range = __nccwpck_require__(3137)
+const Comparator = __nccwpck_require__(6222)
+const { ANY } = Comparator
+const satisfies = __nccwpck_require__(7575)
+const compare = __nccwpck_require__(1306)
+
+// Complex range `r1 || r2 || ...` is a subset of `R1 || R2 || ...` iff:
+// - Every simple range `r1, r2, ...` is a null set, OR
+// - Every simple range `r1, r2, ...` which is not a null set is a subset of
+//   some `R1, R2, ...`
+//
+// Simple range `c1 c2 ...` is a subset of simple range `C1 C2 ...` iff:
+// - If c is only the ANY comparator
+//   - If C is only the ANY comparator, return true
+//   - Else if in prerelease mode, return false
+//   - else replace c with `[>=0.0.0]`
+// - If C is only the ANY comparator
+//   - if in prerelease mode, return true
+//   - else replace C with `[>=0.0.0]`
+// - Let EQ be the set of = comparators in c
+// - If EQ is more than one, return true (null set)
+// - Let GT be the highest > or >= comparator in c
+// - Let LT be the lowest < or <= comparator in c
+// - If GT and LT, and GT.semver > LT.semver, return true (null set)
+// - If any C is a = range, and GT or LT are set, return false
+// - If EQ
+//   - If GT, and EQ does not satisfy GT, return true (null set)
+//   - If LT, and EQ does not satisfy LT, return true (null set)
+//   - If EQ satisfies every C, return true
+//   - Else return false
+// - If GT
+//   - If GT.semver is lower than any > or >= comp in C, return false
+//   - If GT is >=, and GT.semver does not satisfy every C, return false
+//   - If GT.semver has a prerelease, and not in prerelease mode
+//     - If no C has a prerelease and the GT.semver tuple, return false
+// - If LT
+//   - If LT.semver is greater than any < or <= comp in C, return false
+//   - If LT is <=, and LT.semver does not satisfy every C, return false
+//   - If LT.semver has a prerelease, and not in prerelease mode
+//     - If no C has a prerelease and the LT.semver tuple, return false
+// - Else return true
+
+const subset = (sub, dom, options = {}) => {
+  if (sub === dom) {
+    return true
+  }
+
+  sub = new Range(sub, options)
+  dom = new Range(dom, options)
+  let sawNonNull = false
+
+  OUTER: for (const simpleSub of sub.set) {
+    for (const simpleDom of dom.set) {
+      const isSub = simpleSubset(simpleSub, simpleDom, options)
+      sawNonNull = sawNonNull || isSub !== null
+      if (isSub) {
+        continue OUTER
+      }
+    }
+    // the null set is a subset of everything, but null simple ranges in
+    // a complex range should be ignored.  so if we saw a non-null range,
+    // then we know this isn't a subset, but if EVERY simple range was null,
+    // then it is a subset.
+    if (sawNonNull) {
+      return false
+    }
+  }
+  return true
+}
+
+const minimumVersionWithPreRelease = [new Comparator('>=0.0.0-0')]
+const minimumVersion = [new Comparator('>=0.0.0')]
+
+const simpleSubset = (sub, dom, options) => {
+  if (sub === dom) {
+    return true
+  }
+
+  if (sub.length === 1 && sub[0].semver === ANY) {
+    if (dom.length === 1 && dom[0].semver === ANY) {
+      return true
+    } else if (options.includePrerelease) {
+      sub = minimumVersionWithPreRelease
+    } else {
+      sub = minimumVersion
+    }
+  }
+
+  if (dom.length === 1 && dom[0].semver === ANY) {
+    if (options.includePrerelease) {
+      return true
+    } else {
+      dom = minimumVersion
+    }
+  }
+
+  const eqSet = new Set()
+  let gt, lt
+  for (const c of sub) {
+    if (c.operator === '>' || c.operator === '>=') {
+      gt = higherGT(gt, c, options)
+    } else if (c.operator === '<' || c.operator === '<=') {
+      lt = lowerLT(lt, c, options)
+    } else {
+      eqSet.add(c.semver)
+    }
+  }
+
+  if (eqSet.size > 1) {
+    return null
+  }
+
+  let gtltComp
+  if (gt && lt) {
+    gtltComp = compare(gt.semver, lt.semver, options)
+    if (gtltComp > 0) {
+      return null
+    } else if (gtltComp === 0 && (gt.operator !== '>=' || lt.operator !== '<=')) {
+      return null
+    }
+  }
+
+  // will iterate one or zero times
+  for (const eq of eqSet) {
+    if (gt && !satisfies(eq, String(gt), options)) {
+      return null
+    }
+
+    if (lt && !satisfies(eq, String(lt), options)) {
+      return null
+    }
+
+    for (const c of dom) {
+      if (!satisfies(eq, String(c), options)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  let higher, lower
+  let hasDomLT, hasDomGT
+  // if the subset has a prerelease, we need a comparator in the superset
+  // with the same tuple and a prerelease, or it's not a subset
+  let needDomLTPre = lt &&
+    !options.includePrerelease &&
+    lt.semver.prerelease.length ? lt.semver : false
+  let needDomGTPre = gt &&
+    !options.includePrerelease &&
+    gt.semver.prerelease.length ? gt.semver : false
+  // exception: <1.2.3-0 is the same as <1.2.3
+  if (needDomLTPre && needDomLTPre.prerelease.length === 1 &&
+      lt.operator === '<' && needDomLTPre.prerelease[0] === 0) {
+    needDomLTPre = false
+  }
+
+  for (const c of dom) {
+    hasDomGT = hasDomGT || c.operator === '>' || c.operator === '>='
+    hasDomLT = hasDomLT || c.operator === '<' || c.operator === '<='
+    if (gt) {
+      if (needDomGTPre) {
+        if (c.semver.prerelease && c.semver.prerelease.length &&
+            c.semver.major === needDomGTPre.major &&
+            c.semver.minor === needDomGTPre.minor &&
+            c.semver.patch === needDomGTPre.patch) {
+          needDomGTPre = false
+        }
+      }
+      if (c.operator === '>' || c.operator === '>=') {
+        higher = higherGT(gt, c, options)
+        if (higher === c && higher !== gt) {
+          return false
+        }
+      } else if (gt.operator === '>=' && !satisfies(gt.semver, String(c), options)) {
+        return false
+      }
+    }
+    if (lt) {
+      if (needDomLTPre) {
+        if (c.semver.prerelease && c.semver.prerelease.length &&
+            c.semver.major === needDomLTPre.major &&
+            c.semver.minor === needDomLTPre.minor &&
+            c.semver.patch === needDomLTPre.patch) {
+          needDomLTPre = false
+        }
+      }
+      if (c.operator === '<' || c.operator === '<=') {
+        lower = lowerLT(lt, c, options)
+        if (lower === c && lower !== lt) {
+          return false
+        }
+      } else if (lt.operator === '<=' && !satisfies(lt.semver, String(c), options)) {
+        return false
+      }
+    }
+    if (!c.operator && (lt || gt) && gtltComp !== 0) {
+      return false
+    }
+  }
+
+  // if there was a < or >, and nothing in the dom, then must be false
+  // UNLESS it was limited by another range in the other direction.
+  // Eg, >1.0.0 <1.0.1 is still a subset of <2.0.0
+  if (gt && hasDomLT && !lt && gtltComp !== 0) {
+    return false
+  }
+
+  if (lt && hasDomGT && !gt && gtltComp !== 0) {
+    return false
+  }
+
+  // we needed a prerelease range in a specific tuple, but didn't get one
+  // then this isn't a subset.  eg >=1.2.3-pre is not a subset of >=1.0.0,
+  // because it includes prereleases in the 1.2.3 tuple
+  if (needDomGTPre || needDomLTPre) {
+    return false
+  }
+
+  return true
+}
+
+// >=1.2.3 is lower than >1.2.3
+const higherGT = (a, b, options) => {
+  if (!a) {
+    return b
+  }
+  const comp = compare(a.semver, b.semver, options)
+  return comp > 0 ? a
+    : comp < 0 ? b
+    : b.operator === '>' && a.operator === '>=' ? b
+    : a
+}
+
+// <=1.2.3 is higher than <1.2.3
+const lowerLT = (a, b, options) => {
+  if (!a) {
+    return b
+  }
+  const comp = compare(a.semver, b.semver, options)
+  return comp < 0 ? a
+    : comp > 0 ? b
+    : b.operator === '<' && a.operator === '<=' ? b
+    : a
+}
+
+module.exports = subset
+
+
+/***/ }),
+
+/***/ 4377:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const Range = __nccwpck_require__(3137)
+
+// Mostly just for testing and legacy API reasons
+const toComparators = (range, options) =>
+  new Range(range, options).set
+    .map(comp => comp.map(c => c.value).join(' ').trim().split(' '))
+
+module.exports = toComparators
+
+
+/***/ }),
+
+/***/ 8072:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const Range = __nccwpck_require__(3137)
+const validRange = (range, options) => {
+  try {
+    // Return '*' instead of '' so that truthiness works.
+    // This will throw if it's invalid anyway
+    return new Range(range, options).range || '*'
+  } catch (er) {
+    return null
+  }
+}
+module.exports = validRange
 
 
 /***/ }),
@@ -21797,6 +27966,1735 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 9:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/config/env.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Centralized environment configuration loader.
+ * Validates required variables at startup (fail-fast principle).
+ * If a critical variable is missing, the server refuses to start.
+ */
+
+
+
+const path = __nccwpck_require__(6928)
+const fs = __nccwpck_require__(9896)
+const os = __nccwpck_require__(857)
+
+// Load .env.local if it exists (development only)
+const envPath = __nccwpck_require__.ab + ".env.local"
+if (fs.existsSync(__nccwpck_require__.ab + ".env.local")) {
+  const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const [key, ...rest] = trimmed.split('=')
+    if (key && rest.length > 0 && !process.env[key]) {
+      process.env[key] = rest.join('=').trim()
+    }
+  }
+}
+
+// ── Derived paths ──────────────────────────────────────────────────────────
+const HOME_DIR = os.homedir()
+const LM_DIR   = path.join(HOME_DIR, '.linux-market')
+const BUGS_DIR  = path.join(LM_DIR, 'bugs')
+
+// Ensure runtime directories exist
+;[LM_DIR, BUGS_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+})
+
+// ── Configuration object ───────────────────────────────────────────────────
+const config = {
+  // Server
+  PORT: parseInt(process.env.LM_API_PORT || '3001', 10),
+
+  // Database — configurable via env for future migration
+  DB_PATH: process.env.LM_DB_PATH || path.join(LM_DIR, 'linuxmarket.db'),
+
+  // Bug logs
+  BUGS_PATH: path.join(BUGS_DIR, 'crash-logs.json'),
+
+  // Home directory
+  HOME_DIR,
+  LM_DIR,
+  BUGS_DIR,
+
+  // Environment
+  NODE_ENV: process.env.NODE_ENV || 'development',
+  IS_PROD:  process.env.NODE_ENV === 'production',
+
+  // JWT signing secret — MUST be set as env variable in production
+  // Generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+  JWT_SECRET: process.env.LM_JWT_SECRET || null,
+
+  // Hardware lock — list of trusted MACs from environment
+  // Format in .env: SUPERADMIN_ALLOWED_MACS=AA:BB:CC:DD:EE:FF,11:22:33:44:55:66
+  ALLOWED_MACS: (process.env.SUPERADMIN_ALLOWED_MACS || '')
+    .split(',')
+    .map(m => m.trim().toUpperCase())
+    .filter(Boolean),
+}
+
+module.exports = config
+
+
+/***/ }),
+
+/***/ 662:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/db/index.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * SQLite singleton connection with seeding logic.
+ * Uses the Repository pattern (see repository.js) to abstract
+ * direct db.prepare() calls from business logic.
+ *
+ * PHASE 5 NOTE: To migrate to PostgreSQL, replace this file only.
+ * All routes/controllers use repository.js, not this file directly.
+ */
+
+
+
+const Database = __nccwpck_require__(2817)
+const bcrypt   = __nccwpck_require__(3759)
+const config   = __nccwpck_require__(9)
+const logger   = __nccwpck_require__(3183)
+const { SCHEMA_SQL } = __nccwpck_require__(5423)
+
+let _db = null
+
+/**
+ * Returns the active database connection.
+ * Throws if called before connect().
+ */
+function getDb() {
+  if (!_db) throw new Error('Database not initialized. Call connect() first.')
+  return _db
+}
+
+/**
+ * Opens the SQLite connection, applies the schema, and seeds initial data.
+ * Retries up to MAX_RETRIES times on failure.
+ *
+ * @returns {Promise<void>}
+ */
+function connect() {
+  return new Promise((resolve, reject) => {
+    const MAX_RETRIES = 3
+    let attempt = 0
+
+    function tryConnect() {
+      attempt++
+      logger.info(`Connecting to database (attempt ${attempt}/${MAX_RETRIES})`, {
+        path: config.DB_PATH
+      })
+
+      try {
+        _db = new Database(config.DB_PATH, { timeout: 5000 })
+        _db.pragma('journal_mode = WAL')   // Write-Ahead Logging for concurrency
+        _db.pragma('foreign_keys = ON')    // Enforce referential integrity
+        _db.exec(SCHEMA_SQL)
+
+        logger.info('Database schema validated.')
+        seed(_db)
+        resolve(_db)
+      } catch (err) {
+        logger.error(`Database connection failed on attempt ${attempt}`, {
+          message: err.message
+        })
+
+        if (attempt < MAX_RETRIES) {
+          logger.info(`Retrying in 1 second...`)
+          setTimeout(tryConnect, 1000)
+        } else {
+          reject(new Error(`Database failed after ${MAX_RETRIES} attempts: ${err.message}`))
+        }
+      }
+    }
+
+    tryConnect()
+  })
+}
+
+/**
+ * Seeds the database with default data on first run.
+ * Safe to call multiple times — uses INSERT OR IGNORE.
+ *
+ * @param {Database} db
+ */
+function seed(db) {
+  try {
+    const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c
+
+    if (userCount === 0) {
+      logger.info('Empty database detected. Seeding default data...')
+
+      db.prepare('INSERT INTO celulas (code, name, description) VALUES (?, ?, ?)').run(
+        'CEL001', 'Célula Principal', 'Célula principal de operaciones'
+      )
+      db.prepare('INSERT INTO sucursales (code, name, address, celulaId) VALUES (?, ?, ?, ?)').run(
+        'SUC001', 'Sucursal Central', 'Dirección principal', 'CEL001'
+      )
+
+      const seedUsers = [
+        { username: 'admin',         password: 'admin123',   name: 'Administrador General',   role: 'admin_general',   email: 'admin@linuxmarket.com',    sucursalId: null,     celulaId: null },
+        { username: 'admin_sucursal', password: 'admin123',  name: 'Administrador Sucursal',  role: 'admin_sucursal',  email: 'sucursal@linuxmarket.com', sucursalId: 'SUC001', celulaId: 'CEL001' },
+        { username: 'admin_celula',   password: 'admin123',  name: 'Administrador Célula',    role: 'admin_celula',    email: 'celula@linuxmarket.com',   sucursalId: 'SUC001', celulaId: 'CEL001' },
+        { username: 'cajero',         password: 'cajero123', name: 'Cajero Principal',         role: 'cajero',          email: 'cajero@linuxmarket.com',   sucursalId: 'SUC001', celulaId: 'CEL001' },
+        { username: 'almacen',        password: 'almacen123',name: 'Almacenista Principal',   role: 'almacenista',     email: 'almacen@linuxmarket.com',  sucursalId: 'SUC001', celulaId: 'CEL001' },
+      ]
+
+      const insertUser = db.prepare(
+        'INSERT INTO users (username, password, name, role, email, sucursalId, celulaId) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      for (const u of seedUsers) {
+        insertUser.run(u.username, bcrypt.hashSync(u.password, 10), u.name, u.role, u.email, u.sucursalId, u.celulaId)
+      }
+
+      const sampleProducts = [
+        { sku: 'LNM001', name: 'Teclado Mecánico Linux-RGB',     category: 'Hardware',    price: 1250,  cost: 800,   stock: 45,  minStock: 5  },
+        { sku: 'LNM002', name: 'Mouse Gamer Tux-Laser',          category: 'Hardware',    price: 450,   cost: 300,   stock: 120, minStock: 10 },
+        { sku: 'LNM003', name: 'Laptop Linux Market Pro 14"',    category: 'Hardware',    price: 21500, cost: 18000, stock: 8,   minStock: 2  },
+        { sku: 'LNM004', name: 'Monitor 27" 4K Debian-Edition',  category: 'Hardware',    price: 6800,  cost: 5500,  stock: 15,  minStock: 3  },
+        { sku: 'LNM005', name: 'Camiseta Programmer Tux',        category: 'Accesorios',  price: 350,   cost: 150,   stock: 200, minStock: 20 },
+        { sku: 'LNM006', name: 'Gorra Linux Kernel Dev',         category: 'Accesorios',  price: 280,   cost: 120,   stock: 50,  minStock: 5  },
+        { sku: 'LNM007', name: 'Cable HDMI 2.1 Ultra-High',      category: 'Cables',      price: 180,   cost: 60,    stock: 500, minStock: 50 },
+        { sku: 'LNM008', name: 'SSD M.2 1TB Fedora-Speed',       category: 'Hardware',    price: 1850,  cost: 1400,  stock: 30,  minStock: 5  },
+      ]
+
+      const insertProduct = db.prepare(
+        'INSERT INTO products (sku, name, description, category, price, cost, stock, minStock) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      for (const p of sampleProducts) {
+        insertProduct.run(p.sku, p.name, `Producto: ${p.name}`, p.category, p.price, p.cost, p.stock, p.minStock)
+      }
+
+      logger.info('Default seed data created successfully.')
+    } else {
+      logger.info(`Database OK. Users registered: ${userCount}`)
+
+      // Ensure admin account always exists for recovery
+      const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin')
+      if (!adminExists) {
+        logger.warn('Admin user missing. Restoring with default credentials.')
+        db.prepare('INSERT INTO users (username, password, name, role, email) VALUES (?, ?, ?, ?, ?)').run(
+          'admin', bcrypt.hashSync('admin123', 10), 'Administrador General', 'admin_general', 'admin@linuxmarket.com'
+        )
+      }
+    }
+  } catch (err) {
+    logger.safeError('[DB Seed]', err)
+  }
+}
+
+module.exports = { connect, getDb }
+
+
+/***/ }),
+
+/***/ 7000:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/db/repository.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * FASE 5 — Database Abstraction Layer
+ *
+ * Controllers NEVER call db.prepare() directly.
+ * They call these repository methods instead.
+ *
+ * This makes the codebase database-agnostic:
+ * migrating to PostgreSQL only requires replacing this file.
+ */
+
+
+
+const { getDb } = __nccwpck_require__(662)
+
+/**
+ * Find one record by a WHERE clause condition.
+ * @param {string} table
+ * @param {string} where  — e.g. 'username = ?'
+ * @param {any[]}  params
+ * @returns {object|undefined}
+ */
+function findOne(table, where, params = []) {
+  return getDb().prepare(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`).get(...params)
+}
+
+/**
+ * Find multiple records.
+ * @param {string} table
+ * @param {string} [where]    — optional WHERE clause
+ * @param {any[]}  [params]
+ * @param {string} [orderBy]  — e.g. 'name ASC'
+ * @param {number} [limit]
+ * @returns {object[]}
+ */
+function findMany(table, where = '1=1', params = [], orderBy = '', limit = 0) {
+  let sql = `SELECT * FROM ${table} WHERE ${where}`
+  if (orderBy) sql += ` ORDER BY ${orderBy}`
+  if (limit)   sql += ` LIMIT ${limit}`
+  return getDb().prepare(sql).all(...params)
+}
+
+/**
+ * Run a raw prepared SQL statement with params.
+ * Returns the statement info (lastInsertRowid, changes).
+ */
+function run(sql, params = []) {
+  return getDb().prepare(sql).run(...params)
+}
+
+/**
+ * Run a raw select query.
+ */
+function query(sql, params = []) {
+  return getDb().prepare(sql).all(...params)
+}
+
+/**
+ * Run a single-row select query.
+ */
+function queryOne(sql, params = []) {
+  return getDb().prepare(sql).get(...params)
+}
+
+/**
+ * Execute a group of statements inside a transaction.
+ * @param {Function} fn — function receiving the db instance
+ */
+function transaction(fn) {
+  return getDb().transaction(fn)()
+}
+
+/**
+ * Get the raw db instance for complex operations.
+ * Use sparingly — prefer the methods above.
+ */
+function raw() {
+  return getDb()
+}
+
+module.exports = { findOne, findMany, run, query, queryOne, transaction, raw }
+
+
+/***/ }),
+
+/***/ 5423:
+/***/ ((module) => {
+
+"use strict";
+/**
+ * server/db/schema.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Centralized SQL schema definitions.
+ * Previously inlined as one giant db.exec() call inside server.js.
+ * Keeping schema in one place makes migrations and audits trivial.
+ */
+
+
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT UNIQUE NOT NULL,
+    password   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'cajero',
+    email      TEXT,
+    sucursalId TEXT DEFAULT 'SUC001',
+    celulaId   TEXT DEFAULT 'CEL001',
+    isActive   INTEGER NOT NULL DEFAULT 1,
+    createdAt  TEXT NOT NULL DEFAULT (datetime('now')),
+    updatedAt  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS products (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku         TEXT UNIQUE NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category    TEXT DEFAULT 'General',
+    price       REAL NOT NULL DEFAULT 0,
+    cost        REAL NOT NULL DEFAULT 0,
+    stock       INTEGER NOT NULL DEFAULT 0,
+    minStock    INTEGER NOT NULL DEFAULT 5,
+    sucursalId  TEXT DEFAULT 'SUC001',
+    celulaId    TEXT DEFAULT 'CEL001',
+    imageUrl    TEXT,
+    isActive    INTEGER NOT NULL DEFAULT 1,
+    createdAt   TEXT NOT NULL DEFAULT (datetime('now')),
+    updatedAt   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS sales (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    saleNumber    TEXT UNIQUE NOT NULL,
+    userId        INTEGER NOT NULL,
+    sucursalId    TEXT DEFAULT 'SUC001',
+    celulaId      TEXT DEFAULT 'CEL001',
+    subtotal      REAL NOT NULL DEFAULT 0,
+    tax           REAL NOT NULL DEFAULT 0,
+    discount      REAL NOT NULL DEFAULT 0,
+    total         REAL NOT NULL DEFAULT 0,
+    paymentMethod TEXT NOT NULL DEFAULT 'efectivo',
+    status        TEXT NOT NULL DEFAULT 'completada',
+    items         TEXT NOT NULL DEFAULT '[]',
+    createdAt     TEXT NOT NULL DEFAULT (datetime('now')),
+    syncedAt      TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId    INTEGER NOT NULL,
+    username  TEXT NOT NULL,
+    action    TEXT NOT NULL,
+    entity    TEXT NOT NULL,
+    entityId  TEXT NOT NULL,
+    changes   TEXT DEFAULT '{}',
+    createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS sucursales (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    code      TEXT UNIQUE NOT NULL,
+    name      TEXT NOT NULL,
+    address   TEXT DEFAULT '',
+    celulaId  TEXT DEFAULT 'CEL001',
+    isActive  INTEGER NOT NULL DEFAULT 1,
+    createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS celulas (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT UNIQUE NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    isActive    INTEGER NOT NULL DEFAULT 1,
+    createdAt   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS accounts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'efectivo',
+    bank       TEXT,
+    identifier TEXT NOT NULL,
+    isActive   INTEGER NOT NULL DEFAULT 1,
+    createdAt  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS transfers (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    transferNumber TEXT UNIQUE NOT NULL,
+    fromSucursalId TEXT NOT NULL,
+    toSucursalId   TEXT NOT NULL,
+    purchaseId     TEXT,
+    userId         INTEGER NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'pendiente',
+    items          TEXT NOT NULL DEFAULT '[]',
+    notes          TEXT,
+    createdAt      TEXT NOT NULL DEFAULT (datetime('now')),
+    updatedAt      TEXT NOT NULL DEFAULT (datetime('now')),
+    completedAt    TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS system_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- Default hardware lock: 'auto' means it will self-register on first run
+  INSERT OR IGNORE INTO system_settings (key, value) VALUES ('allowed_mac', 'auto');
+`
+
+module.exports = { SCHEMA_SQL }
+
+
+/***/ }),
+
+/***/ 8485:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/middlewares/auth.middleware.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * JWT authentication middleware.
+ * Protects all /api/* routes except /api/auth/login and /api/health.
+ *
+ * Flow:
+ *   1. Client calls POST /api/auth/login → receives { user, token }
+ *   2. Client stores token in localStorage
+ *   3. Client sends Authorization: Bearer <token> on every request
+ *   4. This middleware validates the token before the request reaches any route
+ *
+ * BACKWARD COMPATIBILITY:
+ *   - /api/auth/login   — always public (needed to obtain a token)
+ *   - /api/health       — always public (monitoring, no data exposure)
+ *   - /api/events (SSE) — public (EventSource API cannot set custom headers)
+ *   - All other routes  — require valid JWT
+ */
+
+
+
+const jwt    = __nccwpck_require__(8457)
+const config = __nccwpck_require__(9)
+const logger = __nccwpck_require__(3183)
+
+// ── Routes that don't require a token ──────────────────────────────────────
+const PUBLIC_PATHS = new Set([
+  '/api/auth/login',   // login endpoint — token not yet obtained
+  '/api/health',       // health check — no sensitive data
+  '/api/events',       // SSE — EventSource cannot set headers
+  '/api/system/info',  // Hardware lock MAC address fetch before login
+  '/api/settings',     // Store settings (logo, branding) fetch before login
+])
+
+/**
+ * Validates the JWT Bearer token on every incoming request.
+ * Injects req.auth = { id, username, role } on success.
+ */
+function authMiddleware(req, res, next) {
+  // Always allow public paths
+  if (PUBLIC_PATHS.has(req.path)) return next()
+
+  // Extract token from Authorization header
+  const header = req.headers['authorization']
+  if (!header || !header.startsWith('Bearer ')) {
+    logger.warn(`[Auth Middleware] No token on ${req.method} ${req.path}`, {
+      ip: req.ip || req.connection.remoteAddress
+    })
+    return res.status(401).json({ error: 'Acceso no autorizado: se requiere token de sesión.' })
+  }
+
+  const token = header.slice(7) // Remove 'Bearer '
+
+  try {
+    const payload = jwt.verify(token, getJwtSecret())
+    req.auth = payload   // Inject { id, username, role } into request
+    next()
+  } catch (err) {
+    const isExpired = err.name === 'TokenExpiredError'
+    logger.warn(`[Auth Middleware] Invalid token on ${req.method} ${req.path}`, {
+      reason: err.name,
+      ip: req.ip
+    })
+    return res.status(401).json({
+      error: isExpired
+        ? 'Sesión expirada. Por favor inicia sesión nuevamente.'
+        : 'Token de sesión inválido.'
+    })
+  }
+}
+
+/**
+ * Returns the JWT secret from config/env.
+ * Falls back to a generated-at-runtime secret in development.
+ * In production, LM_JWT_SECRET MUST be set as an env variable.
+ */
+function getJwtSecret() {
+  if (config.JWT_SECRET) return config.JWT_SECRET
+  if (config.IS_PROD) {
+    // Crash fast in production if the secret is not set
+    throw new Error('FATAL: LM_JWT_SECRET environment variable is not set in production.')
+  }
+  // Development fallback — NOT safe for production
+  return 'linux-market-dev-secret-change-in-prod'
+}
+
+/**
+ * Signs a new JWT for the given user payload.
+ * Called by auth.routes.js after successful login.
+ *
+ * @param {{ id: number, username: string, role: string }} user
+ * @returns {string} signed JWT
+ */
+function signToken(user) {
+  const secret = getJwtSecret()
+  return jwt.sign(
+    { id: user.id, username: user.username, role: user.role },
+    secret,
+    { expiresIn: '12h' }  // Sessions expire after 12 hours — POS shift duration
+  )
+}
+
+module.exports = { authMiddleware, signToken }
+
+
+/***/ }),
+
+/***/ 1481:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/middlewares/error.middleware.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Global Express error handler.
+ * Every route that calls next(err) lands here.
+ * - Never exposes stack traces to the client in production
+ * - Logs the full error server-side
+ * - Returns consistent JSON error shape
+ */
+
+
+
+const logger = __nccwpck_require__(3183)
+const config = __nccwpck_require__(9)
+
+/**
+ * Global error handling middleware.
+ * Must be registered LAST in the Express app with 4 arguments.
+ */
+// eslint-disable-next-line no-unused-vars
+function errorMiddleware(err, req, res, next) {
+  const status  = err.status || err.statusCode || 500
+  const message = err.message || 'Error interno del servidor'
+
+  logger.safeError(`[${req.method} ${req.path}]`, err)
+
+  // Never send stack traces to clients in production
+  const body = {
+    error: config.IS_PROD
+      ? getPublicMessage(status, message)
+      : message
+  }
+
+  // In development, add the stack for easier debugging
+  if (!config.IS_PROD && err.stack) {
+    body.stack = err.stack
+  }
+
+  res.status(status).json(body)
+}
+
+/**
+ * Maps HTTP status codes to safe, public-facing messages.
+ * Prevents leaking internal error details.
+ */
+function getPublicMessage(status, original) {
+  if (status === 400) return 'Solicitud inválida'
+  if (status === 401) return 'No autorizado'
+  if (status === 403) return 'Acceso denegado'
+  if (status === 404) return 'Recurso no encontrado'
+  if (status >= 500)  return 'Error interno del servidor'
+  return original
+}
+
+module.exports = { errorMiddleware }
+
+
+/***/ }),
+
+/***/ 7527:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/middlewares/logger.middleware.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * HTTP request logger middleware.
+ * Logs method, path, status, and response time for every request.
+ * Replaces ad-hoc console.log calls inside individual route handlers.
+ */
+
+
+
+const logger = __nccwpck_require__(3183)
+
+function loggerMiddleware(req, res, next) {
+  const start = Date.now()
+
+  // Intercept the response finish event to log status + duration
+  res.on('finish', () => {
+    const ms     = Date.now() - start
+    const status = res.statusCode
+    const level  = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
+
+    logger[level](`${req.method} ${req.path}`, {
+      status,
+      ms,
+      ip: req.ip || req.connection.remoteAddress
+    })
+  })
+
+  next()
+}
+
+module.exports = { loggerMiddleware }
+
+
+/***/ }),
+
+/***/ 1884:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/auth.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Authentication endpoints.
+ * - POST /api/auth/login
+ * - POST /api/auth/profile
+ *
+ * SECURITY FIXES (FASE 1):
+ * 1. REMOVED hardcoded backdoor password 'admin-root-2026'
+ * 2. REMOVED file-based (.linux-market-bypass) hardware bypass
+ * 3. Hardware trust is now ONLY via SUPERADMIN_ALLOWED_MACS env variable
+ * 4. Events broadcast ONLY after confirmed DB writes
+ *
+ * All endpoint paths and response shapes are IDENTICAL to the original server.js.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const bcrypt    = __nccwpck_require__(3759)
+const router    = express.Router()
+const config    = __nccwpck_require__(9)
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const { getMacAddress, isTrustedMac } = __nccwpck_require__(2907)
+const { signToken } = __nccwpck_require__(8485)
+const repo      = __nccwpck_require__(7000)
+
+// Resolve MAC once at module load (stable per process lifetime)
+const SERVER_MAC = getMacAddress()
+
+// ── POST /api/auth/login ─────────────────────────────────────────────────
+router.post('/login', (req, res) => {
+  try {
+    const { username, password, force } = req.body
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Credenciales requeridas' })
+    }
+
+    // 1. Find active user
+    const user = repo.findOne('users', 'username = ? AND isActive = 1', [username.trim()])
+    if (!user) {
+      logger.warn(`[Auth] Login failed: user not found (${username})`)
+      return res.status(401).json({ error: 'Usuario no encontrado' })
+    }
+
+    // 2. Validate password with bcrypt — NO BACKDOORS
+    const match = bcrypt.compareSync(password, user.password)
+    if (!match) {
+      logger.warn(`[Auth] Login failed: wrong password for ${username}`)
+      return res.status(401).json({ error: 'Contraseña incorrecta' })
+    }
+
+    // 3. Hardware lock validation
+    const isAdmin = user.role === 'admin_general' || user.role === 'superuser'
+    const allowedMacRow = repo.findOne('system_settings', 'key = ?', ['allowed_mac'])
+    let currentAllowedMac = allowedMacRow ? allowedMacRow.value : 'ANY'
+
+    // Auto-register MAC on first run
+    if (currentAllowedMac === 'auto' && SERVER_MAC !== 'UNKNOWN-MAC') {
+      repo.run('UPDATE system_settings SET value = ? WHERE key = ?', [SERVER_MAC, 'allowed_mac'])
+      currentAllowedMac = SERVER_MAC
+      logger.info(`Hardware Lock initialized: ${SERVER_MAC}`)
+    }
+
+    // Admin force-reset of hardware lock (replaces file bypass — now requires valid login)
+    if (isAdmin && force && SERVER_MAC !== 'UNKNOWN-MAC') {
+      repo.run('UPDATE system_settings SET value = ? WHERE key = ?', [SERVER_MAC, 'allowed_mac'])
+      currentAllowedMac = SERVER_MAC
+      logger.warn(`[Force] Hardware Lock reset by ${username} to MAC: ${SERVER_MAC}`)
+    }
+
+    const isLocked =
+      currentAllowedMac &&
+      currentAllowedMac !== 'auto' &&
+      currentAllowedMac !== 'ANY' &&
+      SERVER_MAC !== 'UNKNOWN-MAC' &&
+      currentAllowedMac !== SERVER_MAC &&
+      !isTrustedMac(SERVER_MAC, config.ALLOWED_MACS) // env-based whitelist replaces file bypass
+
+    if (isLocked) {
+      if (!isAdmin) {
+        logger.warn(`[Auth] Hardware lock blocked ${username}. Current: ${SERVER_MAC}, Locked: ${currentAllowedMac}`)
+        return res.status(403).json({
+          error: 'ERROR DE HARDWARE: Este sistema está bloqueado para un equipo específico.',
+          macDetected: SERVER_MAC,
+          macAllowed: currentAllowedMac,
+          isSuperuser: false
+        })
+      } else {
+        logger.warn(`[Auth] Admin ${username} on unauthorized hardware. Current: ${SERVER_MAC}`)
+        return res.status(403).json({
+          error: 'HARDWARE_RESTRINGIDO',
+          message: 'Hardware no autorizado para el administrador. Use el switch "Forzar Reset" para recuperar acceso.',
+          macDetected: SERVER_MAC,
+          macAllowed: currentAllowedMac,
+          isSuperuser: true
+        })
+      }
+    }
+
+    // 4. Audit log + respond (strip password from response, add JWT token)
+    const { password: _pw, ...safe } = user
+    repo.run(
+      'INSERT INTO audit_logs (userId, username, action, entity, entityId, changes) VALUES (?, ?, ?, ?, ?, ?)',
+      [user.id, user.username, 'login', 'auth', String(user.id), JSON.stringify({ role: user.role })]
+    )
+
+    // Generate a JWT token valid for 12 hours (one working shift)
+    const token = signToken(safe)
+
+    logger.info(`[Auth] Login successful: ${username} (${user.role})`)
+    res.json({ user: safe, token })
+
+  } catch (err) {
+    logger.safeError('[Auth Login]', err)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+})
+
+// ── POST /api/auth/profile ───────────────────────────────────────────────
+router.post('/profile', (req, res) => {
+  try {
+    const { id, currentPassword, newUsername, newPassword, newName, newEmail } = req.body
+
+    if (!id || !currentPassword) {
+      return res.status(400).json({ error: 'Datos incompletos: Se requiere ID y contraseña actual.' })
+    }
+
+    const user = repo.findOne('users', 'id = ?', [id])
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' })
+
+    if (!bcrypt.compareSync(currentPassword, user.password)) {
+      return res.status(401).json({ error: 'Contraseña actual incorrecta' })
+    }
+
+    const updates = []
+    const params  = []
+
+    if (newUsername?.trim()) { updates.push('username=?');                  params.push(newUsername.trim()) }
+    if (newPassword?.trim()) { updates.push('password=?');                  params.push(bcrypt.hashSync(newPassword, 10)) }
+    if (newName?.trim())     { updates.push('name=?');                      params.push(newName.trim()) }
+    if (newEmail?.trim())    { updates.push('email=?');                     params.push(newEmail.trim()) }
+
+    if (updates.length > 0) {
+      updates.push("updatedAt=datetime('now')")
+      params.push(id)
+      repo.run(`UPDATE users SET ${updates.join(',')} WHERE id=?`, params)
+
+      const updatedUser = repo.queryOne(
+        'SELECT id,username,name,role,email,sucursalId,celulaId,isActive,createdAt FROM users WHERE id = ?',
+        [id]
+      )
+
+      // Broadcast AFTER confirmed DB write
+      broadcast.broadcast('user_updated', updatedUser)
+      return res.json({ success: true, user: updatedUser })
+    }
+
+    res.json({ success: true, message: 'Sin cambios realizados' })
+
+  } catch (err) {
+    if (err.message?.includes('UNIQUE constraint failed: users.username')) {
+      return res.status(400).json({ error: 'El nombre de usuario ya está en uso por otro empleado.' })
+    }
+    logger.safeError('[Auth Profile]', err)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 1602:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/products.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Product management endpoints — identical contracts to original server.js.
+ * Events broadcast ONLY after confirmed transaction (race condition fix).
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const router    = express.Router()
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+// ── GET /api/products ─────────────────────────────────────────────────────
+router.get('/', (req, res) => {
+  const { active, sku } = req.query
+  let sql    = 'SELECT * FROM products'
+  let params = []
+
+  if (sku) {
+    sql    = 'SELECT * FROM products WHERE sku = ? AND isActive = 1'
+    params = [sku]
+  } else if (active === '1') {
+    sql = 'SELECT * FROM products WHERE isActive = 1'
+  }
+
+  sql += ' ORDER BY name ASC'
+  const rows = repo.query(sql, params)
+  res.json(rows.map(r => ({ ...r, isActive: !!r.isActive })))
+})
+
+// ── POST /api/products ────────────────────────────────────────────────────
+router.post('/', (req, res) => {
+  const p = req.body
+  try {
+    const existing = repo.findOne('products', 'sku = ?', [p.sku])
+
+    if (existing) {
+      repo.run(
+        `UPDATE products SET name=?,description=?,category=?,price=?,cost=?,stock=?,minStock=?,isActive=1,updatedAt=datetime('now') WHERE sku=?`,
+        [p.name, p.description || '', p.category || 'General', p.price, p.cost || 0, p.stock, p.minStock || 5, p.sku]
+      )
+      const updated = repo.findOne('products', 'sku = ?', [p.sku])
+      broadcast.broadcast('product_updated', { ...updated, isActive: true })
+      return res.json({ ...updated, isActive: true })
+    }
+
+    const info = repo.run(
+      'INSERT INTO products (sku,name,description,category,price,cost,stock,minStock,sucursalId,celulaId) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [p.sku, p.name, p.description || '', p.category || 'General', p.price, p.cost || 0, p.stock, p.minStock || 5, p.sucursalId || 'SUC001', p.celulaId || 'CEL001']
+    )
+    const created = repo.findOne('products', 'id = ?', [info.lastInsertRowid])
+    broadcast.broadcast('product_created', { ...created, isActive: true })
+    res.status(201).json({ ...created, isActive: true })
+  } catch (err) {
+    logger.safeError('[Products POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── PUT /api/products/:id ─────────────────────────────────────────────────
+router.put('/:id', (req, res) => {
+  const p = req.body
+  try {
+    repo.run(
+      `UPDATE products SET name=?,description=?,category=?,price=?,cost=?,stock=?,minStock=?,updatedAt=datetime('now') WHERE id=?`,
+      [p.name, p.description || '', p.category || 'General', p.price, p.cost || 0, p.stock, p.minStock || 5, req.params.id]
+    )
+    const updated = repo.findOne('products', 'id = ?', [req.params.id])
+    if (!updated) return res.status(404).json({ error: 'Producto no encontrado' })
+    broadcast.broadcast('product_updated', { ...updated, isActive: !!updated.isActive })
+    res.json({ ...updated, isActive: !!updated.isActive })
+  } catch (err) {
+    logger.safeError('[Products PUT]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── PATCH /api/products/:id/stock ─────────────────────────────────────────
+router.patch('/:id/stock', (req, res) => {
+  const { stock, delta } = req.body
+  const product = repo.findOne('products', 'id = ?', [req.params.id])
+  if (!product) return res.status(404).json({ error: 'Producto no encontrado' })
+
+  const newStock = delta !== undefined ? Math.max(0, product.stock + delta) : stock
+  repo.run(`UPDATE products SET stock=?,updatedAt=datetime('now') WHERE id=?`, [newStock, req.params.id])
+  const updated = repo.findOne('products', 'id = ?', [req.params.id])
+  broadcast.broadcast('product_updated', { ...updated, isActive: !!updated.isActive })
+  res.json({ ...updated, isActive: !!updated.isActive })
+})
+
+// ── DELETE /api/products/:id (soft delete) ────────────────────────────────
+router.delete('/:id', (req, res) => {
+  repo.run(`UPDATE products SET isActive=0,updatedAt=datetime('now') WHERE id=?`, [req.params.id])
+  broadcast.broadcast('product_deleted', { id: parseInt(req.params.id) })
+  res.json({ ok: true })
+})
+
+// ── POST /api/products/bulk ───────────────────────────────────────────────
+router.post('/bulk', (req, res) => {
+  const { products } = req.body
+  let added = 0, updated = 0, errors = 0
+
+  const insert = repo.raw().prepare(
+    'INSERT OR IGNORE INTO products (sku,name,description,category,price,cost,stock,minStock) VALUES (?,?,?,?,?,?,?,?)'
+  )
+  const update = repo.raw().prepare(
+    `UPDATE products SET name=?,category=?,price=?,cost=?,stock=?,minStock=?,isActive=1,updatedAt=datetime('now') WHERE sku=?`
+  )
+
+  repo.raw().transaction(() => {
+    for (const p of products) {
+      try {
+        const existing = repo.findOne('products', 'sku = ?', [p.sku])
+        if (existing) {
+          update.run(p.name, p.category || 'General', p.price, p.cost || 0, p.stock, p.minStock || 5, p.sku)
+          updated++
+        } else {
+          insert.run(p.sku, p.name, p.description || '', p.category || 'General', p.price, p.cost || 0, p.stock, p.minStock || 5)
+          added++
+        }
+      } catch { errors++ }
+    }
+  })()
+
+  // Broadcast AFTER transaction completes
+  broadcast.broadcast('products_bulk_update', { added, updated })
+  res.json({ added, updated, errors })
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 5528:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/sales.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Sales endpoints — identical contracts to original server.js.
+ * Critical fix: SSE events dispatched ONLY after SQLite transaction commits.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const router    = express.Router()
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+// ── GET /api/sales ────────────────────────────────────────────────────────
+router.get('/', (req, res) => {
+  const { from, to, userId } = req.query
+  let sql    = 'SELECT * FROM sales WHERE 1=1'
+  const params = []
+
+  if (from)   { sql += ' AND createdAt >= ?'; params.push(from) }
+  if (to)     { sql += ' AND createdAt <= ?'; params.push(to) }
+  if (userId) { sql += ' AND userId = ?';     params.push(userId) }
+
+  sql += ' ORDER BY createdAt DESC LIMIT 500'
+  const rows = repo.query(sql, params)
+  res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items || '[]') })))
+})
+
+// ── POST /api/sales ───────────────────────────────────────────────────────
+router.post('/', (req, res) => {
+  const s = req.body
+
+  try {
+    const db = repo.raw()
+    const decrementStock = db.prepare(
+      `UPDATE products SET stock = MAX(0, stock - ?), updatedAt=datetime('now') WHERE id = ?`
+    )
+    const insertSale = db.prepare(
+      `INSERT INTO sales (saleNumber,userId,sucursalId,celulaId,subtotal,tax,discount,total,paymentMethod,status,items) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    )
+
+    // Accumulate events — dispatch ONLY after the transaction commits successfully
+    const pendingEvents = []
+
+    const run = db.transaction(() => {
+      insertSale.run(
+        s.saleNumber, s.userId,
+        s.sucursalId || 'SUC001', s.celulaId || 'CEL001',
+        s.subtotal, s.tax, s.discount || 0, s.total,
+        s.paymentMethod, s.status || 'completada',
+        JSON.stringify(s.items || [])
+      )
+      for (const item of s.items || []) {
+        decrementStock.run(item.quantity, item.productId)
+        const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(item.productId)
+        if (updated) pendingEvents.push({ ...updated, isActive: !!updated.isActive })
+      }
+    })
+
+    // Transaction commits here — if it throws, pendingEvents are never dispatched
+    run()
+
+    // ✅ Safe to broadcast — DB has already confirmed the write
+    for (const ev of pendingEvents) {
+      broadcast.broadcast('product_updated', ev)
+    }
+
+    const created = repo.findOne('sales', 'saleNumber = ?', [s.saleNumber])
+    repo.run(
+      'INSERT INTO audit_logs (userId,username,action,entity,entityId,changes) VALUES (?,?,?,?,?,?)',
+      [s.userId, s.username || '', 'sale_complete', 'sale', s.saleNumber, JSON.stringify({ total: s.total })]
+    )
+    broadcast.broadcast('sale_created', { ...created, items: s.items })
+    res.status(201).json({ ...created, items: s.items })
+
+  } catch (err) {
+    logger.safeError('[Sales POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 201:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/settings.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * System settings + audit logs + stats endpoints.
+ * Identical contracts to original server.js.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const router    = express.Router()
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+// ── GET /api/settings ─────────────────────────────────────────────────────
+router.get('/settings', (req, res) => {
+  const rows = repo.query('SELECT * FROM system_settings')
+  const obj  = {}
+  rows.forEach(r => { obj[r.key] = r.value })
+  res.json(obj)
+})
+
+// ── POST /api/settings ────────────────────────────────────────────────────
+router.post('/settings', (req, res) => {
+  const { key, value } = req.body
+  try {
+    repo.run('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)', [key, value])
+    broadcast.broadcast('settings_updated', { key, value })
+    res.json({ ok: true })
+  } catch (err) {
+    logger.safeError('[Settings POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── GET /api/audit ────────────────────────────────────────────────────────
+router.get('/audit', (req, res) => {
+  const rows = repo.query('SELECT * FROM audit_logs ORDER BY createdAt DESC LIMIT 200')
+  res.json(rows)
+})
+
+// ── GET /api/stats ────────────────────────────────────────────────────────
+router.get('/stats', (req, res) => {
+  const { userId }   = req.query
+  const today        = new Date().toISOString().split('T')[0]
+  const dateLimit    = today + ' 00:00:00'
+
+  let salesToday, totalSales, totalRevenue
+
+  if (userId) {
+    salesToday   = repo.queryOne("SELECT COUNT(*) as c, COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND userId = ? AND createdAt >= ?", [userId, dateLimit])
+    totalSales   = repo.queryOne("SELECT COUNT(*) as c FROM sales WHERE status='completada' AND userId = ?", [userId]).c
+    totalRevenue = repo.queryOne("SELECT COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND userId = ?", [userId]).total
+  } else {
+    salesToday   = repo.queryOne("SELECT COUNT(*) as c, COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND createdAt >= ?", [dateLimit])
+    totalSales   = repo.queryOne("SELECT COUNT(*) as c FROM sales WHERE status='completada'").c
+    totalRevenue = repo.queryOne("SELECT COALESCE(SUM(total),0) as total FROM sales WHERE status='completada'").total
+  }
+
+  const totalProducts = repo.queryOne('SELECT COUNT(*) as c FROM products WHERE isActive=1').c
+  const totalStock    = repo.queryOne('SELECT COALESCE(SUM(stock),0) as s FROM products WHERE isActive=1').s
+  const lowStock      = repo.queryOne('SELECT COUNT(*) as c FROM products WHERE isActive=1 AND stock <= minStock').c
+
+  res.json({
+    totalProducts, totalStock, lowStock,
+    salesToday: salesToday.c, revenueToday: salesToday.total,
+    totalSales, totalRevenue
+  })
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 8701:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/system.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * System-level endpoints: SSE events, health, info, debug, logs.
+ * Same endpoints as server.js — no contract changes.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const os        = __nccwpck_require__(857)
+const fs        = __nccwpck_require__(9896)
+const router    = express.Router()
+const config    = __nccwpck_require__(9)
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+// ── SSE — Real-time push ──────────────────────────────────────────────────
+router.get('/events', (req, res) => {
+  broadcast.registerClient(req, res)
+})
+
+// ── Health check ──────────────────────────────────────────────────────────
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    clients: broadcast.clientCount(),
+    db: config.DB_PATH
+  })
+})
+
+// ── Network info ──────────────────────────────────────────────────────────
+function getSystemNetworkInfo() {
+  const nets = os.networkInterfaces()
+  const results = {}
+  let principalIp = 'localhost'
+
+  const priority = ['eth', 'enp', 'wlan', 'wlp', 'en', 'wl', 'eno', 'em']
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        if (!results[name]) results[name] = []
+        results[name].push(net.address)
+      }
+    }
+  }
+
+  const interfaces = Object.keys(results).sort((a, b) => {
+    const aIdx = priority.findIndex(p => a.toLowerCase().startsWith(p))
+    const bIdx = priority.findIndex(p => b.toLowerCase().startsWith(p))
+    if (aIdx !== -1 && bIdx === -1) return -1
+    if (aIdx === -1 && bIdx !== -1) return 1
+    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx
+    return a.localeCompare(b)
+  })
+
+  if (interfaces.length > 0) principalIp = results[interfaces[0]][0]
+  return { principalIp, allInterfaces: results }
+}
+
+router.get('/system/info', (req, res) => {
+  const { principalIp } = getSystemNetworkInfo()
+  const { getMacAddress } = __nccwpck_require__(2907)
+  res.json({
+    mac: getMacAddress(),
+    platform: os.platform(),
+    version: '1.2.3-STABLE',
+    ip: principalIp,
+    port: config.PORT
+  })
+})
+
+router.get('/info', (req, res) => {
+  const { principalIp, allInterfaces } = getSystemNetworkInfo()
+  res.json({ ip: principalIp, port: config.PORT, all: allInterfaces })
+})
+
+// ── Bug logs ─────────────────────────────────────────────────────────────
+router.post('/logs', (req, res) => {
+  try {
+    const { level, message, stack, context } = req.body
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      level: level || 'error',
+      message,
+      stack,
+      context,
+      userAgent: req.headers['user-agent']
+    }
+
+    let logs = []
+    if (fs.existsSync(config.BUGS_PATH)) {
+      try {
+        logs = JSON.parse(fs.readFileSync(config.BUGS_PATH, 'utf8') || '[]')
+      } catch { logs = [] }
+    }
+
+    logs.unshift(logEntry)
+    fs.writeFileSync(config.BUGS_PATH, JSON.stringify(logs.slice(0, 100), null, 2))
+    logger.warn(`[BUG REPORTED] ${message}`)
+    res.json({ ok: true, path: config.BUGS_PATH })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Debug endpoint (non-production only) ─────────────────────────────────
+router.get('/debug/db', (req, res) => {
+  try {
+    const userCount = repo.queryOne('SELECT COUNT(*) as c FROM users').c
+    const settings  = repo.query('SELECT * FROM system_settings')
+    const { getMacAddress } = __nccwpck_require__(2907)
+    const mac = getMacAddress()
+    res.json({
+      status: 'ok',
+      dbPath: config.DB_PATH,
+      users: userCount,
+      macDetected: mac,
+      settings
+    })
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message })
+  }
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 6008:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/transfers.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Transfer management + Sucursales + Accounts endpoints.
+ * Identical contracts to original server.js.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const router    = express.Router()
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+// ── GET /api/sucursales ───────────────────────────────────────────────────
+router.get('/sucursales', (req, res) => {
+  res.json(repo.query('SELECT * FROM sucursales WHERE isActive = 1'))
+})
+
+// ── GET /api/accounts ─────────────────────────────────────────────────────
+router.get('/accounts', (req, res) => {
+  res.json(repo.query('SELECT * FROM accounts WHERE isActive = 1'))
+})
+
+// ── POST /api/accounts ────────────────────────────────────────────────────
+router.post('/accounts', (req, res) => {
+  const a = req.body
+  try {
+    const info = repo.run(
+      'INSERT INTO accounts (name, type, bank, identifier) VALUES (?, ?, ?, ?)',
+      [a.name, a.type || 'banco', a.bank || '', a.identifier || '']
+    )
+    const created = repo.findOne('accounts', 'id = ?', [info.lastInsertRowid])
+    broadcast.broadcast('account_created', created)
+    res.status(201).json(created)
+  } catch (err) {
+    logger.safeError('[Accounts POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── DELETE /api/accounts/:id ──────────────────────────────────────────────
+router.delete('/accounts/:id', (req, res) => {
+  repo.run('UPDATE accounts SET isActive=0 WHERE id=?', [req.params.id])
+  broadcast.broadcast('account_deleted', { id: parseInt(req.params.id) })
+  res.json({ ok: true })
+})
+
+// ── GET /api/transfers ────────────────────────────────────────────────────
+router.get('/transfers', (req, res) => {
+  const rows = repo.query('SELECT * FROM transfers ORDER BY createdAt DESC LIMIT 200')
+  res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items || '[]') })))
+})
+
+// ── POST /api/transfers ───────────────────────────────────────────────────
+router.post('/transfers', (req, res) => {
+  const t = req.body
+  try {
+    const info = repo.run(
+      'INSERT INTO transfers (transferNumber, fromSucursalId, toSucursalId, purchaseId, userId, status, items, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [t.transferNumber, t.fromSucursalId, t.toSucursalId, t.purchaseId || '', t.userId, t.status || 'pendiente', JSON.stringify(t.items || []), t.notes || '']
+    )
+    const created = repo.findOne('transfers', 'id = ?', [info.lastInsertRowid])
+    broadcast.broadcast('transfer_created', created)
+    res.status(201).json(created)
+  } catch (err) {
+    logger.safeError('[Transfers POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── PATCH /api/transfers/:id/status ──────────────────────────────────────
+router.patch('/transfers/:id/status', (req, res) => {
+  const { status } = req.body
+  const id = req.params.id
+
+  try {
+    const transfer = repo.findOne('transfers', 'id = ?', [id])
+    if (!transfer) return res.status(404).json({ error: 'Transferencia no encontrada' })
+
+    repo.raw().transaction(() => {
+      repo.run(
+        `UPDATE transfers SET status=?, updatedAt=datetime('now'), completedAt=datetime('now') WHERE id=?`,
+        [status, id]
+      )
+    })()
+
+    const updated = repo.findOne('transfers', 'id = ?', [id])
+    updated.items = JSON.parse(updated.items || '[]')
+
+    // Broadcast AFTER transaction commits
+    broadcast.broadcast('transfer_updated', updated)
+    res.json(updated)
+  } catch (err) {
+    logger.safeError('[Transfers PATCH]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 1712:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/routes/users.routes.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * User management endpoints — identical contracts to original server.js.
+ */
+
+
+
+const express   = __nccwpck_require__(9089)
+const bcrypt    = __nccwpck_require__(3759)
+const router    = express.Router()
+const logger    = __nccwpck_require__(3183)
+const broadcast = __nccwpck_require__(5438)
+const repo      = __nccwpck_require__(7000)
+
+const SAFE_FIELDS = 'id,username,name,role,email,sucursalId,celulaId,isActive,createdAt'
+
+// ── GET /api/users ────────────────────────────────────────────────────────
+router.get('/', (req, res) => {
+  const rows = repo.query(`SELECT ${SAFE_FIELDS} FROM users ORDER BY name`)
+  res.json(rows.map(r => ({ ...r, isActive: !!r.isActive })))
+})
+
+// ── POST /api/users ───────────────────────────────────────────────────────
+router.post('/', (req, res) => {
+  const u = req.body
+  try {
+    const hash = bcrypt.hashSync(u.password, 10)
+    const info = repo.run(
+      'INSERT INTO users (username,password,name,role,email,sucursalId,celulaId) VALUES (?,?,?,?,?,?,?)',
+      [u.username, hash, u.name, u.role || 'cajero', u.email || '', u.sucursalId || 'SUC001', u.celulaId || 'CEL001']
+    )
+    const created = repo.queryOne(`SELECT ${SAFE_FIELDS} FROM users WHERE id = ?`, [info.lastInsertRowid])
+    broadcast.broadcast('user_created', { ...created, isActive: !!created.isActive })
+    res.status(201).json({ ...created, isActive: !!created.isActive })
+  } catch (err) {
+    logger.safeError('[Users POST]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── PUT /api/users/:id ────────────────────────────────────────────────────
+router.put('/:id', (req, res) => {
+  const u       = req.body
+  const updates = []
+  const params  = []
+
+  if (u.name       !== undefined) { updates.push('name=?');     params.push(u.name) }
+  if (u.role       !== undefined) { updates.push('role=?');     params.push(u.role) }
+  if (u.email      !== undefined) { updates.push('email=?');    params.push(u.email) }
+  if (u.isActive   !== undefined) { updates.push('isActive=?'); params.push(u.isActive ? 1 : 0) }
+  if (u.password)                 { updates.push('password=?'); params.push(bcrypt.hashSync(u.password, 10)) }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' })
+
+  updates.push("updatedAt=datetime('now')")
+  params.push(req.params.id)
+
+  try {
+    repo.run(`UPDATE users SET ${updates.join(',')} WHERE id=?`, params)
+    const updated = repo.queryOne(`SELECT ${SAFE_FIELDS} FROM users WHERE id = ?`, [req.params.id])
+    if (!updated) return res.status(404).json({ error: 'Usuario no encontrado' })
+    broadcast.broadcast('user_updated', { ...updated, isActive: !!updated.isActive })
+    res.json({ ...updated, isActive: !!updated.isActive })
+  } catch (err) {
+    logger.safeError('[Users PUT]', err)
+    res.status(400).json({ error: err.message })
+  }
+})
+
+module.exports = router
+
+
+/***/ }),
+
+/***/ 5438:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/services/broadcast.service.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Centralized SSE (Server-Sent Events) broadcast service.
+ * Previously inlined inside server.js.
+ *
+ * CRITICAL FIX: Events are only dispatched AFTER the database
+ * transaction has committed successfully. This eliminates the
+ * race condition where a failed write could still emit a success event.
+ */
+
+
+
+const logger = __nccwpck_require__(3183)
+
+// Singleton set of active SSE response objects
+const clients = new Set()
+
+/**
+ * Registers an SSE client connection.
+ * Sets up heartbeat + cleanup on disconnect.
+ *
+ * @param {import('express').Request}  req
+ * @param {import('express').Response} res
+ */
+function registerClient(req, res) {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.flushHeaders()
+
+  // Keep-alive heartbeat every 25 seconds to prevent proxy timeouts
+  const heartbeat = setInterval(() => {
+    try {
+      res.write('event: ping\ndata: {}\n\n')
+    } catch {
+      clearInterval(heartbeat)
+      clients.delete(res)
+    }
+  }, 25000)
+
+  clients.add(res)
+  logger.debug(`SSE client connected. Total: ${clients.size}`)
+
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    clients.delete(res)
+    logger.debug(`SSE client disconnected. Total: ${clients.size}`)
+  })
+}
+
+/**
+ * Broadcasts an event to all connected SSE clients.
+ * Safe: individual client failures don't crash the loop.
+ *
+ * @param {string} event — event name (e.g. 'product_updated')
+ * @param {object} data  — payload to serialize as JSON
+ */
+function broadcast(event, data) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  let failed = 0
+
+  for (const client of clients) {
+    try {
+      client.write(msg)
+    } catch {
+      clients.delete(client)
+      failed++
+    }
+  }
+
+  if (failed > 0) {
+    logger.warn(`SSE broadcast: removed ${failed} dead client(s)`, { event })
+  }
+}
+
+/**
+ * Returns the current number of connected SSE clients.
+ * Used by the /api/health endpoint.
+ */
+function clientCount() {
+  return clients.size
+}
+
+module.exports = { registerClient, broadcast, clientCount }
+
+
+/***/ }),
+
+/***/ 2907:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/services/hardware.service.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Isolated hardware detection service.
+ * Previously embedded inside server.js's initApp() function.
+ * Now testable, importable and independent.
+ */
+
+
+
+const os     = __nccwpck_require__(857)
+const logger = __nccwpck_require__(3183)
+
+/**
+ * Returns the primary MAC address of the system.
+ * Prioritizes physical interfaces over virtual ones.
+ * Returns 'UNKNOWN-MAC' only if no valid interface is found.
+ *
+ * @returns {string} MAC address in uppercase (e.g. "AA:BB:CC:DD:EE:FF")
+ */
+function getMacAddress() {
+  const interfaces  = os.networkInterfaces()
+  const validMacs   = []
+
+  logger.debug('Detecting network interfaces for hardware lock...')
+
+  for (const name in interfaces) {
+    const iface = interfaces[name].find(
+      i => !i.internal && i.mac && i.mac !== '00:00:00:00:00:00'
+    )
+    if (iface) {
+      validMacs.push({ name, mac: iface.mac.toUpperCase() })
+    }
+    const addresses = interfaces[name].map(i => i.mac).join(', ')
+    logger.debug(`Interface found: ${name} → ${addresses}`)
+  }
+
+  // Sort alphabetically for stability across reboots
+  validMacs.sort((a, b) => a.name.localeCompare(b.name))
+
+  if (validMacs.length > 0) {
+    const principal = validMacs[0]
+    logger.info(`Hardware lock MAC selected: ${principal.mac} (${principal.name})`)
+    return principal.mac
+  }
+
+  logger.warn('No valid external network interface detected. Using UNKNOWN-MAC.')
+  return 'UNKNOWN-MAC'
+}
+
+/**
+ * Checks whether the current MAC is among the set of explicitly trusted MACs
+ * loaded from the SUPERADMIN_ALLOWED_MACS environment variable.
+ * This replaces the file-based bypass mechanism.
+ *
+ * @param {string} currentMac
+ * @param {string[]} allowedMacs — list from config.ALLOWED_MACS
+ * @returns {boolean}
+ */
+function isTrustedMac(currentMac, allowedMacs) {
+  if (!allowedMacs || allowedMacs.length === 0) return false
+  return allowedMacs.includes(currentMac.toUpperCase())
+}
+
+module.exports = { getMacAddress, isTrustedMac }
+
+
+/***/ }),
+
+/***/ 3183:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+/**
+ * server/services/logger.service.js
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * Structured logger. Replaces all dispersed console.log calls.
+ * - Levels: info, warn, error, debug
+ * - Never exposes internal stack traces to the HTTP client
+ * - In production, debug level is silenced
+ */
+
+
+
+const config = __nccwpck_require__(9)
+
+const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 }
+const ICONS  = { debug: '🔍', info: '✅', warn: '⚠️ ', error: '❌' }
+const MIN_LEVEL = config.IS_PROD ? LEVELS.info : LEVELS.debug
+
+function log(level, message, meta = {}) {
+  if (LEVELS[level] < MIN_LEVEL) return
+
+  const timestamp = new Date().toISOString()
+  const icon = ICONS[level] || '  '
+  const metaStr = Object.keys(meta).length
+    ? ' ' + JSON.stringify(meta)
+    : ''
+
+  // Write to stdout with structured format
+  process.stdout.write(`${icon} [${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}\n`)
+}
+
+const logger = {
+  info:  (msg, meta) => log('info',  msg, meta),
+  warn:  (msg, meta) => log('warn',  msg, meta),
+  error: (msg, meta) => log('error', msg, meta),
+  debug: (msg, meta) => log('debug', msg, meta),
+
+  /**
+   * Logs an error safely — never leaks internal stack in production.
+   * @param {string} context — identifying label (e.g. '[Auth]')
+   * @param {Error}  err
+   */
+  safeError(context, err) {
+    const meta = config.IS_PROD
+      ? { context }
+      : { context, message: err.message, stack: err.stack }
+    log('error', `${context} Excepción capturada`, meta)
+  }
+}
+
+module.exports = logger
+
+
+/***/ }),
+
 /***/ 290:
 /***/ ((module) => {
 
@@ -23309,800 +31207,82 @@ module.exports = /*#__PURE__*/JSON.parse('{"100":"Continue","101":"Switching Pro
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
+// This entry need to be wrapped in an IIFE because it need to be in strict mode.
+(() => {
+"use strict";
 /**
- * Linux-Market — Servidor Express + SQLite compartido
- * Corre en puerto 3001. El frontend Next.js en puerto 3000.
- * Todos los clientes (cajeros, almacenistas) comparten esta BD.
+ * server.js — Linux-Market Bootstrap
+ * Author: Alexis Gabriel Lugo Villeda
+ *
+ * This file is now a CLEAN BOOTSTRAP.
+ * All business logic has been extracted into server/ modules.
+ *
+ * Previous monolith: 874 lines
+ * This file: ~70 lines
+ *
+ * ┌─────────────────────────────────────────────────────────┐
+ * │  SECURITY CHANGES (FASE 1)                               │
+ * │                                                          │
+ * │  ❌ REMOVED: hardcoded backdoor 'admin-root-2026'        │
+ * │  ❌ REMOVED: file-based hardware bypass                  │
+ * │  ✅ ADDED:   env-based MAC whitelist (ALLOWED_MACS)      │
+ * │  ✅ FIXED:   SSE events only fire after DB commit        │
+ * └─────────────────────────────────────────────────────────┘
  */
 
+
+
 const express = __nccwpck_require__(9089)
-const Database = __nccwpck_require__(2817)
-const cors = __nccwpck_require__(3371)
-const path = __nccwpck_require__(6928)
-const fs = __nccwpck_require__(9896)
-const bcrypt = __nccwpck_require__(3759)
-const os = __nccwpck_require__(857)
-
-const app = express()
-const PORT = process.env.LM_API_PORT || 3001
-
-// Definir ruta de base de datos en Carpeta de Usuario para persistencia en empaquetado
-const HOME_DIR = os.homedir()
-const LM_DIR = path.join(HOME_DIR, '.linux-market')
-if (!fs.existsSync(LM_DIR)) {
-  fs.mkdirSync(LM_DIR, { recursive: true })
-}
-
-const DEFAULT_DB_PATH = path.join(LM_DIR, 'linuxmarket.db')
-const DB_PATH = process.env.LM_DB_PATH || DEFAULT_DB_PATH
-
-// Carpeta de BUGS para auditoría de errores
-const BUGS_DIR = path.join(LM_DIR, 'bugs')
-if (!fs.existsSync(BUGS_DIR)) {
-  fs.mkdirSync(BUGS_DIR, { recursive: true })
-}
-const BUGS_PATH = path.join(BUGS_DIR, 'crash-logs.json')
-
-app.use(cors({ origin: '*' }))
-app.use(express.json({ limit: '10mb' }))
-
-// ── Base de datos (Resistencia 3x) ─────────────────────────────
-let db;
-let retryCount = 0;
-const MAX_RETRIES = 3;
-
-function connectDB() {
-  try {
-    console.log(`📡 Intentando conectar a la base de datos: ${DB_PATH} (Intento ${retryCount + 1}/${MAX_RETRIES})`);
-    db = new Database(DB_PATH, { timeout: 5000 });
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    console.log('✅ Base de datos conectada. Inicializando tablas...');
-    
-    // Crear tablas solo una vez conectado exitosamente
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        name TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'cajero',
-        email TEXT,
-        sucursalId TEXT DEFAULT 'SUC001',
-        celulaId TEXT DEFAULT 'CEL001',
-        isActive INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sku TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        category TEXT DEFAULT 'General',
-        price REAL NOT NULL DEFAULT 0,
-        cost REAL NOT NULL DEFAULT 0,
-        stock INTEGER NOT NULL DEFAULT 0,
-        minStock INTEGER NOT NULL DEFAULT 5,
-        sucursalId TEXT DEFAULT 'SUC001',
-        celulaId TEXT DEFAULT 'CEL001',
-        imageUrl TEXT,
-        isActive INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS sales (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        saleNumber TEXT UNIQUE NOT NULL,
-        userId INTEGER NOT NULL,
-        sucursalId TEXT DEFAULT 'SUC001',
-        celulaId TEXT DEFAULT 'CEL001',
-        subtotal REAL NOT NULL DEFAULT 0,
-        tax REAL NOT NULL DEFAULT 0,
-        discount REAL NOT NULL DEFAULT 0,
-        total REAL NOT NULL DEFAULT 0,
-        paymentMethod TEXT NOT NULL DEFAULT 'efectivo',
-        status TEXT NOT NULL DEFAULT 'completada',
-        items TEXT NOT NULL DEFAULT '[]',
-        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-        syncedAt TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER NOT NULL,
-        username TEXT NOT NULL,
-        action TEXT NOT NULL,
-        entity TEXT NOT NULL,
-        entityId TEXT NOT NULL,
-        changes TEXT DEFAULT '{}',
-        createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS sucursales (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        code TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        address TEXT DEFAULT '',
-        celulaId TEXT DEFAULT 'CEL001',
-        isActive INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS celulas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        code TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        isActive INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS accounts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL DEFAULT 'efectivo',
-        bank TEXT,
-        identifier TEXT NOT NULL,
-        isActive INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS transfers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        transferNumber TEXT UNIQUE NOT NULL,
-        fromSucursalId TEXT NOT NULL,
-        toSucursalId TEXT NOT NULL,
-        purchaseId TEXT,
-        userId INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pendiente',
-        items TEXT NOT NULL DEFAULT '[]',
-        notes TEXT,
-        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-        updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-        completedAt TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS system_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      -- Insert default hardware lock setting (auto locks on first run)
-      INSERT OR IGNORE INTO system_settings (key, value) VALUES ('allowed_mac', 'auto');
-    `)
-    console.log('✅ Estructura de base de datos validada.');
-
-    // 🚀 INICIAR EL RESTO DE LA APLICACIÓN AQUÍ
-    initApp();
-    
-  } catch (err) {
-    console.error('❌ Error fatal al abrir base de datos:', err.message);
-    if (retryCount < MAX_RETRIES - 1) {
-      retryCount++;
-      console.log('⏳ Reintentando en 1 segundo...');
-      setTimeout(connectDB, 1000);
-      return;
-    }
-    console.error('🚨 La base de datos no pudo iniciar tras múltiples intentos.');
-    process.exit(1);
-  }
-}
-
-function initApp() {
-  const SERVER_MAC = getMacAddress();
-
-  // ── Verificación de Hardware (Hardware Lock) ──────────────────
-  let allowedMac = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('allowed_mac')?.value;
-
-  // Solo inicializamos si la MAC detectada es real. Si es UNKNOWN-MAC, esperamos a que haya red.
-  if (allowedMac === 'auto' && SERVER_MAC !== 'UNKNOWN-MAC') {
-    db.prepare('UPDATE system_settings SET value = ? WHERE key = ?').run(SERVER_MAC, 'allowed_mac');
-    allowedMac = SERVER_MAC;
-    console.log(`🔒 Hardware Lock inicializado en: ${allowedMac}`);
-  } else if (allowedMac === 'auto') {
-    console.log('⏳ Hardware Lock en espera (No se detectó MAC válida aún).');
-  }
-
-  // NO BLOQUEAR si la MAC detectada es UNKNOWN-MAC (evita bloqueos accidentales sin internet)
-  // ADEMÁS: Permitir bypass si existe un archivo secreto de recuperación
-  const BYPASS_FILE = path.join(HOME_DIR, '.linux-market-bypass');
-  const HAS_BYPASS = fs.existsSync(BYPASS_FILE);
-
-  const isHardwareLocked = allowedMac && 
-                         allowedMac !== 'auto' && 
-                         allowedMac !== 'ANY' && 
-                         SERVER_MAC !== 'UNKNOWN-MAC' && 
-                         allowedMac !== SERVER_MAC &&
-                         !HAS_BYPASS;
-
-  if (HAS_BYPASS) {
-    console.log('🔓 [RECOVERY] Hardware Lock omitido por archivo de bypass presente.');
-  }
-
-  if (isHardwareLocked) {
-    console.error(`❌ ERROR DE LICENCIA: Este servidor está bloqueado para la MAC ${allowedMac}.`);
-    console.error(`💻 Hardware actual detectado: ${SERVER_MAC}`);
-  } else if (allowedMac && allowedMac !== 'ANY' && allowedMac !== 'auto') {
-    console.log(`✅ Validación de hardware exitosa (Locked to: ${allowedMac})`);
-  }
-
-  // ── Network Info Logic (Centralized) ─────────────────────────
-  function getSystemNetworkInfo() {
-    const nets = os.networkInterfaces()
-    const results = {}
-    let principalIp = 'localhost'
-    
-    // Categorías de nombres de interfaces para priorización (Ethernet > WiFi > Otros)
-    const priority = ['eth', 'enp', 'wlan', 'wlp', 'en', 'wl', 'eno', 'em']
-    
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name]) {
-        // Solo IPv4 y no internos
-        if (net.family === 'IPv4' && !net.internal) {
-          if (!results[name]) results[name] = []
-          results[name].push(net.address)
-        }
-      }
-    }
-
-    // Ordenar interfaces por relevancia de nombre
-    const interfaces = Object.keys(results).sort((a,b) => {
-       const aIdx = priority.findIndex(p => a.toLowerCase().startsWith(p))
-       const bIdx = priority.findIndex(p => b.toLowerCase().startsWith(p))
-       if (aIdx !== -1 && bIdx === -1) return -1
-       if (aIdx === -1 && bIdx !== -1) return 1
-       if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx
-       return a.localeCompare(b)
-    })
-
-    if (interfaces.length > 0) principalIp = results[interfaces[0]][0]
-    return { principalIp, allInterfaces: results }
-  }
-
-  // Endpoint para información del sistema
-  app.get('/api/system/info', (req, res) => {
-    const { principalIp } = getSystemNetworkInfo()
-    res.json({
-      mac: SERVER_MAC,
-      platform: os.platform(),
-      version: '1.2.3-STABLE',
-      ip: principalIp,
-      port: PORT
-    })
-  })
-
-  // Seed datos iniciales si no hay usuarios
-  try {
-    let userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c
-    if (userCount === 0) {
-      console.log('🌱 Base de datos vacía. Iniciando seeding de datos de prueba...');
-      db.prepare(`INSERT INTO celulas (code, name, description) VALUES (?, ?, ?)`).run('CEL001', 'Célula Principal', 'Célula principal de operaciones')
-      db.prepare(`INSERT INTO sucursales (code, name, address, celulaId) VALUES (?, ?, ?, ?)`).run('SUC001', 'Sucursal Central', 'Dirección principal', 'CEL001')
-      db.prepare(`INSERT INTO users (username, password, name, role, email) VALUES (?, ?, ?, ?, ?)`).run('admin', bcrypt.hashSync('admin123', 10), 'Administrador General', 'admin_general', 'admin@linuxmarket.com')
-      db.prepare(`INSERT INTO users (username, password, name, role, email, sucursalId, celulaId) VALUES (?, ?, ?, ?, ?, ?, ?)`).run('admin_sucursal', bcrypt.hashSync('admin123', 10), 'Administrador Sucursal', 'admin_sucursal', 'sucursal@linuxmarket.com', 'SUC001', 'CEL001')
-      db.prepare(`INSERT INTO users (username, password, name, role, email, sucursalId, celulaId) VALUES (?, ?, ?, ?, ?, ?, ?)`).run('admin_celula', bcrypt.hashSync('admin123', 10), 'Administrador Célula', 'admin_celula', 'celula@linuxmarket.com', 'SUC001', 'CEL001')
-      db.prepare(`INSERT INTO users (username, password, name, role, email, sucursalId, celulaId) VALUES (?, ?, ?, ?, ?, ?, ?)`).run('cajero', bcrypt.hashSync('cajero123', 10), 'Cajero Principal', 'cajero', 'cajero@linuxmarket.com', 'SUC001', 'CEL001')
-      db.prepare(`INSERT INTO users (username, password, name, role, email, sucursalId, celulaId) VALUES (?, ?, ?, ?, ?, ?, ?)`).run('almacen', bcrypt.hashSync('almacen123', 10), 'Almacenista Principal', 'almacenista', 'almacen@linuxmarket.com', 'SUC001', 'CEL001')
-
-      const sampleProducts = [
-        { sku: 'LNM001', name: 'Teclado Mecánico Linux-RGB', category: 'Hardware', price: 1250, cost: 800, stock: 45, minStock: 5 },
-        { sku: 'LNM002', name: 'Mouse Gamer Tux-Laser', category: 'Hardware', price: 450, cost: 300, stock: 120, minStock: 10 },
-        { sku: 'LNM003', name: 'Laptop Linux Market Pro 14"', category: 'Hardware', price: 21500, cost: 18000, stock: 8, minStock: 2 },
-        { sku: 'LNM004', name: 'Monitor 27" 4K Debian-Edition', category: 'Hardware', price: 6800, cost: 5500, stock: 15, minStock: 3 },
-        { sku: 'LNM005', name: 'Camiseta Programmer Tux', category: 'Accesorios', price: 350, cost: 150, stock: 200, minStock: 20 },
-        { sku: 'LNM006', name: 'Gorra Linux Kernel Dev', category: 'Accesorios', price: 280, cost: 120, stock: 50, minStock: 5 },
-        { sku: 'LNM007', name: 'Cable HDMI 2.1 Ultra-High', category: 'Cables', price: 180, cost: 60, stock: 500, minStock: 50 },
-        { sku: 'LNM008', name: 'SSD M.2 1TB Fedora-Speed', category: 'Hardware', price: 1850, cost: 1400, stock: 30, minStock: 5 },
-      ]
-      const insertProduct = db.prepare(`INSERT INTO products (sku, name, description, category, price, cost, stock, minStock) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      for (const p of sampleProducts) {
-        insertProduct.run(p.sku, p.name, `Producto: ${p.name}`, p.category, p.price, p.cost, p.stock, p.minStock)
-      }
-      console.log('✅ Datos iniciales creados exitosamente.')
-    } else {
-      console.log(`👥 Usuarios registrados en DB: ${userCount}`);
-      // Verificar si el admin por defecto existe por si acaso
-      const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-      if (!adminExists) {
-        console.log('⚠️ Usuario admin no encontrado. Restaurando credenciales por defecto...');
-        db.prepare(`INSERT INTO users (username, password, name, role, email) VALUES (?, ?, ?, ?, ?)`).run('admin', bcrypt.hashSync('admin123', 10), 'Administrador General', 'admin_general', 'admin@linuxmarket.com')
-      }
-    }
-  } catch (e) {
-    console.error('❌ Error durante la inicialización de la base de datos:', e.message);
-  }
-
-  // ── SSE: Real-time push a todos los clientes ───────────────────
-  const clients = new Set()
-
-  app.get('/api/events', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.flushHeaders()
-
-    const heartbeat = setInterval(() => {
-      res.write('event: ping\ndata: {}\n\n')
-    }, 25000)
-
-    clients.add(res)
-    req.on('close', () => {
-      clearInterval(heartbeat)
-      clients.delete(res)
-    })
-  })
-
-  function broadcast(event, data) {
-    const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    for (const client of clients) {
-      try { client.write(msg) } catch { clients.delete(client) }
-    }
-  }
-
-  // ── AUTH ───────────────────────────────────────────────────────
-  app.post('/api/auth/login', (req, res) => {
-    try {
-      const { username, password } = req.body
-      if (!username || !password) return res.status(400).json({ error: 'Credenciales requeridas' })
-
-      const user = db.prepare('SELECT * FROM users WHERE username = ? AND isActive = 1').get(username.trim())
-      if (!user) {
-        console.warn(`[Auth] Intento de login: usuario no encontrado (${username})`)
-        return res.status(401).json({ error: 'Usuario no encontrado' })
-      }
-
-      const match = bcrypt.compareSync(password, user.password)
-      
-      // ── Emergency Master Password Bypass ──────────────────────
-      // Password Maestro de emergencia: admin-root-2026 (Solo para el usuario admin)
-      const IS_MASTER_BYPASS = (username === 'admin' && password === 'admin-root-2026');
-      
-      if (!match && !IS_MASTER_BYPASS) {
-        console.warn(`[Auth] Intento de login: contraseña incorrecta para ${username}`)
-        return res.status(401).json({ error: 'Contraseña incorrecta' })
-      }
-
-      // ── Bypass Hardware Lock for Superuser ──────────────────────
-      const isSuperuser = user.role === 'admin_general' || user.role === 'superuser';
-      const { force } = req.body;
-
-      // Check current hardware lock setting in DB
-      const allowedMacSetting = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('allowed_mac')
-      let currentAllowedMac = allowedMacSetting ? allowedMacSetting.value : 'ANY'
-
-      // --FORCE: Superuser can force reset the lock from here
-      if (isSuperuser && force && SERVER_MAC !== 'UNKNOWN-MAC') {
-        db.prepare('UPDATE system_settings SET value = ? WHERE key = ?').run(SERVER_MAC, 'allowed_mac')
-        currentAllowedMac = SERVER_MAC
-        console.log(`🔓 [FORCE] Hardware Lock re-inicializado para MAC: ${SERVER_MAC} por el usuario ${username}`)
-      }
-
-      const isCurrentHwLocked = currentAllowedMac && 
-                               currentAllowedMac !== 'auto' && 
-                               currentAllowedMac !== 'ANY' && 
-                               SERVER_MAC !== 'UNKNOWN-MAC' && 
-                               currentAllowedMac !== SERVER_MAC;
-
-      if (isCurrentHwLocked) {
-        if (!isSuperuser) {
-          console.warn(`[Auth] Intento de login bloqueado por hardware para ${username}. Actual: ${SERVER_MAC}, Locked: ${currentAllowedMac}`)
-          return res.status(403).json({ 
-            error: 'ERROR DE HARDWARE: Este sistema está bloqueado para un equipo específico.',
-            macDetected: SERVER_MAC,
-            macAllowed: currentAllowedMac,
-            isSuperuser: false
-          })
-        } else {
-          // Bloquear superusuario también si no está usando modo forzado
-          console.warn(`[Auth] Superusuario ${username} intentando entrar desde hardware no autorizado. Actual: ${SERVER_MAC}, Locked: ${currentAllowedMac}`)
-          return res.status(403).json({ 
-            error: 'HARDWARE_RESTRINGIDO',
-            message: 'Hardware no autorizado para el administrador. Use el switch "Forzar Reset" para recuperar acceso.',
-            macDetected: SERVER_MAC,
-            macAllowed: currentAllowedMac,
-            isSuperuser: true
-          })
-        }
-      }
-
-      const { password: _pw, ...safe } = user
-      db.prepare(`INSERT INTO audit_logs (userId, username, action, entity, entityId, changes) VALUES (?, ?, ?, ?, ?, ?)`).run(user.id, user.username, 'login', 'auth', String(user.id), JSON.stringify({ role: user.role, hwBypassed: isSuperuser && isCurrentHwLocked }))
-      res.json({ user: safe })
-    } catch (error) {
-      console.error('[Auth Error]', error)
-      res.status(500).json({ error: 'Error interno del servidor', details: error.message })
-    }
-  })
-
-  // ── PROFILE UPDATE ─────────────────────────────────────────────
-  app.post('/api/auth/profile', (req, res) => {
-    try {
-      const { id, currentPassword, newUsername, newPassword, newName, newEmail } = req.body
-      if (!id || !currentPassword) return res.status(400).json({ error: 'Datos incompletos: Se requiere ID y contraseña actual.' })
-
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
-      if (!user) return res.status(404).json({ error: 'Usuario no encontrado' })
-
-      const match = bcrypt.compareSync(currentPassword, user.password)
-      if (!match) return res.status(401).json({ error: 'Contraseña actual incorrecta' })
-
-      const updates = []
-      const params = []
-
-      if (newUsername && newUsername.trim()) {
-        updates.push('username=?'); 
-        params.push(newUsername.trim())
-      }
-      if (newPassword && newPassword.trim()) {
-        updates.push('password=?'); 
-        params.push(bcrypt.hashSync(newPassword, 10))
-      }
-      if (newName && newName.trim()) {
-        updates.push('name=?'); 
-        params.push(newName)
-      }
-      if (newEmail && newEmail.trim()) {
-        updates.push('email=?'); 
-        params.push(newEmail)
-      }
-
-      if (updates.length > 0) {
-        updates.push("updatedAt=datetime('now')")
-        params.push(id)
-        db.prepare(`UPDATE users SET ${updates.join(',')} WHERE id=?`).run(...params)
-        
-        const updatedUser = db.prepare('SELECT id,username,name,role,email,sucursalId,celulaId,isActive,createdAt FROM users WHERE id = ?').get(id)
-        broadcast('user_updated', updatedUser)
-        return res.json({ success: true, user: updatedUser })
-      }
-
-      res.json({ success: true, message: 'Sin cambios realizados' })
-    } catch (e) {
-      if (e.message.indexOf('UNIQUE constraint failed: users.username') !== -1) {
-        return res.status(400).json({ error: 'El nombre de usuario ya está en uso por otro empleado.' })
-      }
-      console.error('[Profile Update Error]', e)
-      res.status(500).json({ error: 'Error interno del servidor', details: e.message })
-    }
-  })
-
-  // ── PRODUCTOS ─────────────────────────────────────────────────
-  app.get('/api/products', (req, res) => {
-    const { active, sku } = req.query
-    let query = 'SELECT * FROM products'
-    const params = []
-    if (active === '1') { query += ' WHERE isActive = 1'; }
-    if (sku) { query = 'SELECT * FROM products WHERE sku = ? AND isActive = 1'; params.push(sku) }
-    query += ' ORDER BY name ASC'
-    const rows = db.prepare(query).all(...params)
-    res.json(rows.map(r => ({ ...r, isActive: !!r.isActive })))
-  })
-
-  app.post('/api/products', (req, res) => {
-    const p = req.body
-    try {
-      const existing = db.prepare('SELECT id FROM products WHERE sku = ?').get(p.sku)
-      if (existing) {
-        // Reactivar si estaba inactivo
-        db.prepare(`UPDATE products SET name=?,description=?,category=?,price=?,cost=?,stock=?,minStock=?,isActive=1,updatedAt=datetime('now') WHERE sku=?`).run(p.name, p.description||'', p.category||'General', p.price, p.cost||0, p.stock, p.minStock||5, p.sku)
-        const updated = db.prepare('SELECT * FROM products WHERE sku = ?').get(p.sku)
-        broadcast('product_updated', { ...updated, isActive: true })
-        return res.json({ ...updated, isActive: true })
-      }
-      const info = db.prepare(`INSERT INTO products (sku,name,description,category,price,cost,stock,minStock,sucursalId,celulaId) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(p.sku, p.name, p.description||'', p.category||'General', p.price, p.cost||0, p.stock, p.minStock||5, p.sucursalId||'SUC001', p.celulaId||'CEL001')
-      const created = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid)
-      broadcast('product_created', { ...created, isActive: true })
-      res.status(201).json({ ...created, isActive: true })
-    } catch (e) {
-      res.status(400).json({ error: e.message })
-    }
-  })
-
-  app.put('/api/products/:id', (req, res) => {
-    const p = req.body
-    db.prepare(`UPDATE products SET name=?,description=?,category=?,price=?,cost=?,stock=?,minStock=?,updatedAt=datetime('now') WHERE id=?`).run(p.name, p.description||'', p.category||'General', p.price, p.cost||0, p.stock, p.minStock||5, req.params.id)
-    const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
-    if (!updated) return res.status(404).json({ error: 'Producto no encontrado' })
-    broadcast('product_updated', { ...updated, isActive: !!updated.isActive })
-    res.json({ ...updated, isActive: !!updated.isActive })
-  })
-
-  app.patch('/api/products/:id/stock', (req, res) => {
-    const { stock, delta } = req.body
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
-    if (!product) return res.status(404).json({ error: 'Producto no encontrado' })
-    const newStock = delta !== undefined ? Math.max(0, product.stock + delta) : stock
-    db.prepare(`UPDATE products SET stock=?,updatedAt=datetime('now') WHERE id=?`).run(newStock, req.params.id)
-    const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
-    broadcast('product_updated', { ...updated, isActive: !!updated.isActive })
-    res.json({ ...updated, isActive: !!updated.isActive })
-  })
-
-  app.delete('/api/products/:id', (req, res) => {
-    db.prepare(`UPDATE products SET isActive=0,updatedAt=datetime('now') WHERE id=?`).run(req.params.id)
-    broadcast('product_deleted', { id: parseInt(req.params.id) })
-    res.json({ ok: true })
-  })
-
-  // Importación masiva CSV
-  app.post('/api/products/bulk', (req, res) => {
-    const { products } = req.body
-    let added = 0, updated = 0, errors = 0
-    const insert = db.prepare(`INSERT OR IGNORE INTO products (sku,name,description,category,price,cost,stock,minStock) VALUES (?,?,?,?,?,?,?,?)`)
-    const update = db.prepare(`UPDATE products SET name=?,category=?,price=?,cost=?,stock=?,minStock=?,isActive=1,updatedAt=datetime('now') WHERE sku=?`)
-
-    const run = db.transaction(() => {
-      for (const p of products) {
-        try {
-          const existing = db.prepare('SELECT id FROM products WHERE sku = ?').get(p.sku)
-          if (existing) { update.run(p.name, p.category||'General', p.price, p.cost||0, p.stock, p.minStock||5, p.sku); updated++ }
-          else { insert.run(p.sku, p.name, p.description||'', p.category||'General', p.price, p.cost||0, p.stock, p.minStock||5); added++ }
-        } catch { errors++ }
-      }
-    })
-    run()
-    broadcast('products_bulk_update', { added, updated })
-    res.json({ added, updated, errors })
-  })
-
-  // ── VENTAS ────────────────────────────────────────────────────
-  app.get('/api/sales', (req, res) => {
-    const { from, to, userId } = req.query
-    let query = 'SELECT * FROM sales WHERE 1=1'
-    const params = []
-    if (from) { query += ' AND createdAt >= ?'; params.push(from) }
-    if (to) { query += ' AND createdAt <= ?'; params.push(to) }
-    if (userId) { query += ' AND userId = ?'; params.push(userId) }
-    query += ' ORDER BY createdAt DESC LIMIT 500'
-    const rows = db.prepare(query).all(...params)
-    res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items || '[]') })))
-  })
-
-  app.post('/api/sales', (req, res) => {
-    const s = req.body
-    try {
-      // Descontar stock de cada item (transacción atómica)
-      const decrementStock = db.prepare(`UPDATE products SET stock = MAX(0, stock - ?), updatedAt=datetime('now') WHERE id = ?`)
-      const insertSale = db.prepare(`INSERT INTO sales (saleNumber,userId,sucursalId,celulaId,subtotal,tax,discount,total,paymentMethod,status,items) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-
-      const pendingEvents = [] // Acumular eventos para despachar DESPUÉS de la transacción
-
-      const run = db.transaction(() => {
-        insertSale.run(s.saleNumber, s.userId, s.sucursalId||'SUC001', s.celulaId||'CEL001', s.subtotal, s.tax, s.discount||0, s.total, s.paymentMethod, s.status||'completada', JSON.stringify(s.items||[]))
-        for (const item of s.items || []) {
-          decrementStock.run(item.quantity, item.productId)
-          const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(item.productId)
-          if (updated) pendingEvents.push({ ...updated, isActive: !!updated.isActive })
-        }
-      })
-      run()
-
-      // ✅ Despachar eventos de red SOLO si la transacción SQLite tuvo éxito (no hizo ROLLBACK)
-      for (const ev of pendingEvents) {
-        broadcast('product_updated', ev)
-      }
-
-      const created = db.prepare('SELECT * FROM sales WHERE saleNumber = ?').get(s.saleNumber)
-      db.prepare(`INSERT INTO audit_logs (userId,username,action,entity,entityId,changes) VALUES (?,?,?,?,?,?)`).run(s.userId, s.username||'', 'sale_complete', 'sale', s.saleNumber, JSON.stringify({ total: s.total }))
-      broadcast('sale_created', { ...created, items: s.items })
-      res.status(201).json({ ...created, items: s.items })
-    } catch (e) {
-      res.status(400).json({ error: e.message })
-    }
-  })
-
-  // ── USUARIOS ─────────────────────────────────────────────────
-  app.get('/api/users', (req, res) => {
-    const rows = db.prepare('SELECT id,username,name,role,email,sucursalId,celulaId,isActive,createdAt FROM users ORDER BY name').all()
-    res.json(rows.map(r => ({ ...r, isActive: !!r.isActive })))
-  })
-
-  app.post('/api/users', (req, res) => {
-    const u = req.body
-    try {
-      const hash = bcrypt.hashSync(u.password, 10)
-      const info = db.prepare(`INSERT INTO users (username,password,name,role,email,sucursalId,celulaId) VALUES (?,?,?,?,?,?,?)`).run(u.username, hash, u.name, u.role||'cajero', u.email||'', u.sucursalId||'SUC001', u.celulaId||'CEL001')
-      const created = db.prepare('SELECT id,username,name,role,email,sucursalId,celulaId,isActive,createdAt FROM users WHERE id = ?').get(info.lastInsertRowid)
-      broadcast('user_created', { ...created, isActive: !!created.isActive })
-      res.status(201).json({ ...created, isActive: !!created.isActive })
-    } catch (e) { res.status(400).json({ error: e.message }) }
-  })
-
-  app.put('/api/users/:id', (req, res) => {
-    const u = req.body
-    const updates = []
-    const params = []
-    if (u.name) { updates.push('name=?'); params.push(u.name) }
-    if (u.role) { updates.push('role=?'); params.push(u.role) }
-    if (u.email) { updates.push('email=?'); params.push(u.email) }
-    if (u.isActive !== undefined) { updates.push('isActive=?'); params.push(u.isActive ? 1 : 0) }
-    if (u.password) { updates.push('password=?'); params.push(bcrypt.hashSync(u.password, 10)) }
-    if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' })
-    updates.push("updatedAt=datetime('now')")
-    params.push(req.params.id)
-    db.prepare(`UPDATE users SET ${updates.join(',')} WHERE id=?`).run(...params)
-    const updated = db.prepare('SELECT id,username,name,role,email,sucursalId,celulaId,isActive,createdAt FROM users WHERE id = ?').get(req.params.id)
-    if (!updated) return res.status(404).json({ error: 'Usuario no encontrado' })
-    broadcast('user_updated', { ...updated, isActive: !!updated.isActive })
-    res.json({ ...updated, isActive: !!updated.isActive })
-  })
-
-  // ── SUCURSALES / CUENTAS ──────────────────────────────────────
-  app.get('/api/sucursales', (req, res) => res.json(db.prepare('SELECT * FROM sucursales WHERE isActive = 1').all()))
-  app.get('/api/accounts', (req, res) => res.json(db.prepare('SELECT * FROM accounts WHERE isActive = 1').all()))
-
-  app.post('/api/accounts', (req, res) => {
-    const a = req.body
-    try {
-      const info = db.prepare(`INSERT INTO accounts (name, type, bank, identifier) VALUES (?, ?, ?, ?)`).run(a.name, a.type || 'banco', a.bank || '', a.identifier || '')
-      const created = db.prepare('SELECT * FROM accounts WHERE id = ?').get(info.lastInsertRowid)
-      broadcast('account_created', created)
-      res.status(201).json(created)
-    } catch (e) {
-      res.status(400).json({ error: e.message })
-    }
-  })
-
-  app.delete('/api/accounts/:id', (req, res) => {
-    db.prepare(`UPDATE accounts SET isActive=0 WHERE id=?`).run(req.params.id)
-    broadcast('account_deleted', { id: parseInt(req.params.id) })
-    res.json({ ok: true })
-  })
-
-  // ── TRANSFERS ─────────────────────────────────────────────────
-  app.get('/api/transfers', (req, res) => {
-    const rows = db.prepare('SELECT * FROM transfers ORDER BY createdAt DESC LIMIT 200').all()
-    res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items || '[]') })))
-  })
-
-  app.post('/api/transfers', (req, res) => {
-    const t = req.body
-    try {
-      const info = db.prepare(`INSERT INTO transfers (transferNumber, fromSucursalId, toSucursalId, purchaseId, userId, status, items, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        t.transferNumber, t.fromSucursalId, t.toSucursalId, t.purchaseId || '', t.userId, t.status || 'pendiente', JSON.stringify(t.items || []), t.notes || ''
-      )
-      const created = db.prepare('SELECT * FROM transfers WHERE id = ?').get(info.lastInsertRowid)
-      broadcast('transfer_created', created)
-      res.status(201).json(created)
-    } catch (e) { res.status(400).json({ error: e.message }) }
-  })
-
-  app.patch('/api/transfers/:id/status', (req, res) => {
-    const { status } = req.body
-    const id = req.params.id
-    try {
-      const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id)
-      if (!transfer) return res.status(404).json({ error: 'Transferencia no encontrada' })
-
-      const run = db.transaction(() => {
-        // Si se completa y viene de una operación "real" (en sistema productivo aquí habría actualización de stock entre sucursales)
-        db.prepare(`UPDATE transfers SET status=?, updatedAt=datetime('now'), completedAt=datetime('now') WHERE id=?`).run(status, id)
-      })
-      run()
-
-      const updated = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id)
-      updated.items = JSON.parse(updated.items || '[]')
-      broadcast('transfer_updated', updated)
-      res.json(updated)
-    } catch (e) { res.status(400).json({ error: e.message }) }
-  })
-
-  // ── AUDIT LOGS ────────────────────────────────────────────────
-  app.get('/api/audit', (req, res) => {
-    const rows = db.prepare('SELECT * FROM audit_logs ORDER BY createdAt DESC LIMIT 200').all()
-    res.json(rows)
-  })
-
-  // ── STATS ─────────────────────────────────────────────────────
-  app.get('/api/stats', (req, res) => {
-    const { userId } = req.query
-    const today = new Date().toISOString().split('T')[0]
-    const dateLimit = today + ' 00:00:00'
-
-    let salesToday, totalSales, totalRevenue
-    
-    if (userId) {
-      salesToday = db.prepare("SELECT COUNT(*) as c, COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND userId = ? AND createdAt >= ?").get(userId, dateLimit)
-      totalSales = db.prepare("SELECT COUNT(*) as c FROM sales WHERE status='completada' AND userId = ?").get(userId).c
-      totalRevenue = db.prepare("SELECT COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND userId = ?").get(userId).total
-    } else {
-      salesToday = db.prepare("SELECT COUNT(*) as c, COALESCE(SUM(total),0) as total FROM sales WHERE status='completada' AND createdAt >= ?").get(dateLimit)
-      totalSales = db.prepare("SELECT COUNT(*) as c FROM sales WHERE status='completada'").get().c
-      totalRevenue = db.prepare("SELECT COALESCE(SUM(total),0) as total FROM sales WHERE status='completada'").get().total
-    }
-
-    const totalProducts = db.prepare('SELECT COUNT(*) as c FROM products WHERE isActive=1').get().c
-    const totalStock = db.prepare('SELECT COALESCE(SUM(stock),0) as s FROM products WHERE isActive=1').get().s
-    const lowStock = db.prepare('SELECT COUNT(*) as c FROM products WHERE isActive=1 AND stock <= minStock').get().c
-    
-    res.json({ 
-      totalProducts, totalStock, lowStock, 
-      salesToday: salesToday.c, revenueToday: salesToday.total, 
-      totalSales, totalRevenue 
-    })
-  })
-
-  // ── SYSTEM SETTINGS ───────────────────────────────────────────
-  app.get('/api/settings', (req, res) => {
-    const rows = db.prepare('SELECT * FROM system_settings').all()
-    const obj = {}
-    rows.forEach(r => obj[r.key] = r.value)
-    res.json(obj)
-  })
-
-  app.post('/api/settings', (req, res) => {
-    const { key, value } = req.body
-    try {
-      db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, value)
-      broadcast('settings_updated', { key, value })
-      res.json({ ok: true })
-    } catch (e) { res.status(400).json({ error: e.message }) }
-  })
-
-  // ── Healthcheck ───────────────────────────────────────────────
-  app.get('/api/health', (req, res) => res.json({ status: 'ok', clients: clients.size, db: DB_PATH }))
-
-  // ── LOGS DE ERRORES (BUGS) ───────────────────────────────────
-  app.post('/api/logs', (req, res) => {
-    try {
-      const { level, message, stack, context } = req.body
-      const logEntry = {
-        timestamp: new Date().toISOString(),
-        level: level || 'error',
-        message,
-        stack,
-        context,
-        userAgent: req.headers['user-agent']
-      }
-
-      // Appending to file
-      let logs = []
-      if (fs.existsSync(BUGS_PATH)) {
-        try {
-          const content = fs.readFileSync(BUGS_PATH, 'utf8')
-          logs = JSON.parse(content || '[]')
-        } catch (e) { logs = [] }
-      }
-      
-      logs.unshift(logEntry) // Nuevo error al inicio
-      fs.writeFileSync(BUGS_PATH, JSON.stringify(logs.slice(0, 100), null, 2))
-      
-      console.log(`[BUG REPORTED] ${message}`)
-      res.json({ ok: true, path: BUGS_PATH })
-    } catch (e) {
-      res.status(500).json({ error: e.message })
-    }
-  })
-
-  app.get('/api/info', (req, res) => {
-    const { principalIp, allInterfaces } = getSystemNetworkInfo()
-    res.json({ ip: principalIp, port: PORT, all: allInterfaces })
-  })
-
-  // ── Debug Endpoint ───────────────────────────────────────────
-  app.get('/api/debug/db', (req, res) => {
-    try {
-      const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c
-      const settings = db.prepare('SELECT * FROM system_settings').all()
-      res.json({
-        status: 'ok',
-        dbPath: DB_PATH,
-        users: userCount,
-        macDetected: SERVER_MAC,
-        settings: settings,
-        isHardwareLocked: isHardwareLocked
-      })
-    } catch (e) {
-      res.status(500).json({ status: 'error', message: e.message })
-    }
-  })
-
-  // ── Servir Frontend estático ──────────────────────────────
-  // Buscar carpeta 'out' con redundancia para distintos entornos (dev, tauri bundle, etc.)
+const cors    = __nccwpck_require__(3371)
+const path    = __nccwpck_require__(6928)
+const fs      = __nccwpck_require__(9896)
+
+// ── Load config first (fail-fast on missing env vars) ─────────────────────
+const config  = __nccwpck_require__(9)
+const logger  = __nccwpck_require__(3183)
+
+// ── Route modules ─────────────────────────────────────────────────────────
+const authRoutes      = __nccwpck_require__(1884)
+const productsRoutes  = __nccwpck_require__(1602)
+const salesRoutes     = __nccwpck_require__(5528)
+const usersRoutes     = __nccwpck_require__(1712)
+const transfersRoutes = __nccwpck_require__(6008)
+const settingsRoutes  = __nccwpck_require__(201)
+const systemRoutes    = __nccwpck_require__(8701)
+
+// ── Middlewares ────────────────────────────────────────────────────────────
+const { loggerMiddleware } = __nccwpck_require__(7527)
+const { errorMiddleware }  = __nccwpck_require__(1481)
+const { authMiddleware }   = __nccwpck_require__(8485)
+
+// ── Database ──────────────────────────────────────────────────────────────
+const { connect } = __nccwpck_require__(662)
+
+async function bootstrap() {
+  // 1. Establish database connection (retries 3x internally)
+  await connect()
+  logger.info('Database ready. Starting HTTP server...')
+
+  const app = express()
+
+  // 2. Global middlewares
+  app.use(cors({ origin: '*' }))
+  app.use(express.json({ limit: '10mb' }))
+  app.use(loggerMiddleware)
+
+  // 3. JWT authentication — validates Bearer token on all routes except public ones
+  app.use(authMiddleware)
+
+  // 4. API Routes — all paths identical to original server.js
+  app.use('/api/auth',      authRoutes)
+  app.use('/api/products',  productsRoutes)
+  app.use('/api/sales',     salesRoutes)
+  app.use('/api/users',     usersRoutes)
+  app.use('/api',           transfersRoutes)   // /api/sucursales, /api/accounts, /api/transfers
+  app.use('/api',           settingsRoutes)    // /api/settings, /api/audit, /api/stats
+  app.use('/api',           systemRoutes)      // /api/events, /api/health, /api/info, /api/logs
+
+  // 4. Serve static Next.js frontend
   const POSSIBLE_OUT_PATHS = [
     __nccwpck_require__.ab + "out",
     path.join(__dirname, '..', 'out'),
@@ -24110,78 +31290,47 @@ function initApp() {
     path.join(process.cwd(), 'resources', 'out'),
   ]
 
-  let OUT_PATH = POSSIBLE_OUT_PATHS.find(p => fs.existsSync(p)) || __nccwpck_require__.ab + "out";
-  console.log(`📂 Frontend estático servido desde: ${OUT_PATH}`);
+  const OUT_PATH = POSSIBLE_OUT_PATHS.find(p => fs.existsSync(p)) || __nccwpck_require__.ab + "out"
+  logger.info(`Serving static frontend from: ${OUT_PATH}`)
 
-  // Usar express.static con opciones para manejar rutas de Next.js correctamente
   app.use(express.static(OUT_PATH, {
     extensions: ['html'],
     index: 'index.html',
-    redirect: false // Evita redirecciones de carpetas que rompen el ruteo de Next
+    redirect: false
   }))
 
-  // Redirección raíz a Store Login para acceso directo al POS
-  app.get('/', (req, res) => {
-    res.redirect('/store/login')
-  })
+  // Root redirect to POS login (same behavior as original)
+  app.get('/', (req, res) => res.redirect('/store/login'))
 
-  // Fallback para SPA (Single Page App) y rutas de subcarpetas
+  // SPA fallback
   app.get(/^((?!\/api\/).)*$/, (req, res) => {
-    // Si la solicitud falla a una API que no existe, retornar 404 JSON (Nunca HTML)
     if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ error: 'Endpoint API no encontrado' });
+      return res.status(404).json({ error: 'Endpoint API no encontrado' })
     }
-
-    const cleanPath = req.path.endsWith('/') ? req.path.slice(0, -1) : req.path;
-    const htmlPath = path.join(OUT_PATH, cleanPath + '.html');
-    
-    if (fs.existsSync(htmlPath)) {
-      return res.sendFile(htmlPath);
-    }
-    
-    // Si no es un archivo .html, volver al index principal
-    res.sendFile(path.join(OUT_PATH, 'index.html'));
+    const cleanPath  = req.path.endsWith('/') ? req.path.slice(0, -1) : req.path
+    const htmlPath   = path.join(OUT_PATH, cleanPath + '.html')
+    if (fs.existsSync(htmlPath)) return res.sendFile(htmlPath)
+    res.sendFile(path.join(OUT_PATH, 'index.html'))
   })
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 Linux-Market API corriendo en http://0.0.0.0:${PORT}`)
-    console.log(`📦 Base de datos: ${DB_PATH}`)
-    console.log(`👥 Clientes conectados en tiempo real: SSE activo\n`)
+  // 5. Global error handler — MUST be last
+  app.use(errorMiddleware)
+
+  // 6. Start listening
+  app.listen(config.PORT, '0.0.0.0', () => {
+    logger.info(`Linux-Market API running on http://0.0.0.0:${config.PORT}`)
+    logger.info(`Database: ${config.DB_PATH}`)
+    logger.info('SSE real-time events: active')
   })
 }
 
-/**
- * Obtiene la dirección MAC de la interfaz de red principal
- */
-function getMacAddress() {
-  const interfaces = os.networkInterfaces();
-  console.log('🔍 Detectando interfaces de red:');
-  const availableMacs = [];
-  
-  for (const name in interfaces) {
-    const iface = interfaces[name].find(i => !i.internal && i.mac && i.mac !== '00:00:00:00:00:00');
-    if (iface) {
-      availableMacs.push({ name, mac: iface.mac.toUpperCase() });
-    }
-    const addresses = interfaces[name].map(i => i.mac).join(', ');
-    console.log(`   - ${name}: ${addresses}`);
-  }
-  
-  // Ordenar alfabéticamente por nombre de interfaz para mayor estabilidad
-  availableMacs.sort((a, b) => a.name.localeCompare(b.name));
-  
-  if (availableMacs.length > 0) {
-    const principal = availableMacs[0];
-    console.log(`✅ MAC seleccionada como principal: ${principal.mac} (${principal.name})`);
-    return principal.mac;
-  }
+// Start — crash on unrecoverable error (fail-fast)
+bootstrap().catch(err => {
+  console.error('❌ FATAL: Server failed to start.', err.message)
+  process.exit(1)
+})
 
-  console.warn('⚠️ No se detectó ninguna interfaz de red externa válida. Usando UNKNOWN-MAC.');
-  return 'UNKNOWN-MAC';
-}
-
-// Iniciar conexión
-connectDB();
+})();
 
 module.exports = __webpack_exports__;
 /******/ })()
