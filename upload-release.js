@@ -43,44 +43,67 @@ async function uploadFile(uploadUrl, filePath, fileName) {
 }
 
 async function run() {
-  console.log('Creando release...');
-  const release = await request({
+  const releaseData = { 
+    tag_name: tag, 
+    name: 'v1.2.3 STABLE - Final Release (' + new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }) + ')', 
+    body: '## 🚀 Novedades en Linux Market POS v1.2.3 (Actualizado: ' + new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }) + ')\n\nEste lanzamiento marca la estabilidad total del sistema con las siguientes funciones:\n\n*   **🎨 Diseño Ultra-Premium**: Botones "Galácticos" y efectos de luz neón de alto contraste (Inversión B&W).\n*   **🌍 Sistema Multimoneda**: Soporte dinámico para MXN, USD, EUR y más con locales configurables.\n*   **🖨️ Periféricos Industriales**: Integración nativa con impresoras térmicas ESC/POS y cajón de efectivo.\n*   **🛡️ Filtro Anti-Humanos**: Optimización del escáner láser para evitar entradas manuales erróneas.\n*   **🦾 Kiosko Inteligente**: Implementación de auto-reset por inactividad (90s) y cálculos financieros de alta precisión.\n*   **📦 AppStream Support**: Ahora las capturas de pantalla y la descripción aparecen en las tiendas de software de Linux.\n\nRegalo de Alexis Gabriel Lugo Villeda para la comunidad del software libre.',
+    draft: false,
+    prerelease: false,
+    make_latest: "true"
+  };
+
+  console.log('Intentando crear/actualizar release...');
+  let release = await request({
     hostname: 'api.github.com',
     path: '/repos/' + repo + '/releases',
     method: 'POST',
     headers: { 'Authorization': 'token ' + token, 'User-Agent': 'NodeJS', 'Content-Type': 'application/json' }
-  }, JSON.stringify({ 
-    tag_name: tag, 
-    name: 'v1.2.3 STABLE - by Alexis Gabriel Lugo Villeda', 
-    body: '## 🚀 Novedades en Linux Market POS v1.2.3\n\nEste lanzamiento marca la estabilidad total del sistema con las siguientes funciones:\n\n*   **🌍 Sistema Multimoneda**: Soporte dinámico para MXN, USD, EUR y más con locales configurables.\n*   **🖨️ Periféricos Industriales**: Integración nativa con impresoras térmicas ESC/POS y cajón de efectivo.\n*   **🛡️ Filtro Anti-Humanos**: Optimización del escáner láser para evitar entradas manuales erróneas.\n*   **🦾 Kiosko Inteligente**: Implementación de auto-reset por inactividad (90s) y cálculos financieros de alta precisión.\n*   **🔐 Seguridad Pro**: Cifrado AES-256 local y bloqueo de hardware vía MAC-Whitelisting.\n*   **📦 AppStream Support**: Ahora las capturas de pantalla y la descripción aparecen en las tiendas de software de Linux.\n\nRegalo de Alexis Gabriel Lugo Villeda para la comunidad del software libre.',
-    draft: false,
-    prerelease: false
-  }));
+  }, JSON.stringify(releaseData));
 
-  if (release.status !== 201) {
-     console.error('Error creando release:', release.data);
-     if (release.status === 422) console.log('La release ya existe, intentando usar la existente...');
-     else return;
+  console.log('Status de respuesta (POST):', release.status);
+
+  if (release.status === 422) {
+    console.log('La release ya existe, actualizando metadatos...');
+    const existing = await request({
+       hostname: 'api.github.com',
+       path: '/repos/' + repo + '/releases/tags/' + tag,
+       headers: { 'Authorization': 'token ' + token, 'User-Agent': 'NodeJS' }
+    });
+    
+    if (existing.data && existing.data.id) {
+      release = await request({
+         hostname: 'api.github.com',
+         path: '/repos/' + repo + '/releases/' + existing.data.id,
+         method: 'PATCH',
+         headers: { 'Authorization': 'token ' + token, 'User-Agent': 'NodeJS', 'Content-Type': 'application/json' }
+      }, JSON.stringify(releaseData));
+      console.log('Status de respuesta (PATCH):', release.status);
+    }
   }
 
-  // Obtener la release si ya existe o es nueva
+  // Refrescar para obtener el upload_url garantizado
   const latest = await request({
     hostname: 'api.github.com',
     path: '/repos/' + repo + '/releases/tags/' + tag,
     headers: { 'Authorization': 'token ' + token, 'User-Agent': 'NodeJS' }
   });
 
+  if (!latest.data || !latest.data.upload_url) {
+    console.error('Error: No se pudo obtener el upload_url. Data:', latest.data);
+    return;
+  }
+
   const uploadUrl = latest.data.upload_url;
-  console.log('📦 Preparando subida de activos...');
+  console.log('📦 Preparando subida de activos a:', uploadUrl);
   
   await uploadFile(uploadUrl, './public/downloads/debian/linux-market.deb', 'linux-market.deb');
-  console.log('✅ DEB (Debian/Ubuntu) subido con éxito.');
+  console.log('✅ DEB subido.');
   
   await uploadFile(uploadUrl, './public/downloads/fedora/linux-market.rpm', 'linux-market.rpm');
-  console.log('✅ RPM (Fedora/RHEL) subido con éxito.');
+  console.log('✅ RPM subido.');
   
   await uploadFile(uploadUrl, './public/downloads/arch/linux-market.tar.gz', 'linux-market.tar.gz');
-  console.log('✅ TAR.GZ (Portable/Arch) subido con éxito.');
+  console.log('✅ TAR.GZ subido.');
   
   console.log('✨ ¡Lanzamiento oficial v1.2.3 completado!');
 }

@@ -4,14 +4,20 @@
  * Reemplaza IndexedDB para operaciones que necesitan compartirse entre equipos.
  */
 
-// Detectar URL base del servidor API (mismo host, puerto 3001)
-function getApiBase(): string {
+// Detectar URL base del servidor API (Localhost 3001 para comunicación segura)
+const getApiBase = () => {
   if (typeof window === 'undefined') return 'http://localhost:3001'
   const host = window.location.hostname
+  
+  // Si estamos en Vercel, siempre intentamos conectar al localhost del usuario para ver el POS
+  if (host.includes('vercel.app')) {
+      return 'http://localhost:3001'
+  }
+  
   return `http://${host}:3001`
 }
 
-export const API_BASE = typeof window !== 'undefined' ? getApiBase() : 'http://localhost:3001'
+export const API_BASE = getApiBase()
 
 // JWT token management helpers
 const TOKEN_KEY = 'linuxmarket_token'
