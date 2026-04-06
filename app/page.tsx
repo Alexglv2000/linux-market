@@ -184,11 +184,18 @@ export default function PublicityLandingPage() {
             </div>
 
             {/* Download Button (Desktop) */}
-            <a href="#descargas" className="hidden sm:block">
-              <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black px-6 py-3 shadow-lg shadow-violet-500/30 border border-violet-400/30 transition-all hover:scale-105">
-                DESCARGAR
-              </Button>
-            </a>
+            <div className="hidden lg:flex items-center gap-3">
+              <Link href="/store/login">
+                <Button variant="ghost" className="text-xs font-black px-6 py-3 text-violet-400 hover:text-white hover:bg-violet-500/10 transition-all uppercase">
+                  VER PROYECTO
+                </Button>
+              </Link>
+              <a href="#descargas">
+                <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black px-6 py-3 shadow-lg shadow-violet-500/30 border border-violet-400/30 transition-all hover:scale-105">
+                  DESCARGAR
+                </Button>
+              </a>
+            </div>
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
