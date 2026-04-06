@@ -564,42 +564,46 @@ body.tauri-app aside.fixed {
   animation-delay: 2s;
 }
 
-/* 🚀 GALAXY BUTTON & RAINBOW BORDER 🌈 */
+/* 🚀 GALAXY BUTTON & B&W INVERSION 🌈 */
 .btn-galaxy {
   position: relative;
   overflow: hidden;
-  background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%);
-  background-size: 200% 200%;
-  animation: galaxy-move 10s ease infinite;
+  background: #000000;
   z-index: 10;
   transition: all 0.3s ease;
   border-radius: 9999px;
 }
 
-/* Efecto Gusano (Cometa que viaja) */
+/* Efecto Gusano (Ráfaga de Luz Cyan - SIN ARCOÍRIS) */
 .btn-galaxy::after {
   content: "";
   position: absolute;
-  inset: -4px; /* Margen amplio para evitar cortes de borde */
+  inset: -4px;
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
-    transparent 180deg,
-    #3b82f6 240deg,
-    #ec4899 300deg,
-    #a855f7 350deg,
+    transparent 280deg,
+    #3b82f6 320deg,
+    #60a5fa 350deg,
     transparent 360deg
   );
   border-radius: inherit;
   z-index: -1;
-  animation: rainbow-rotate 3s linear infinite;
+  animation: rainbow-rotate 2.5s linear infinite;
   transition: opacity 0.3s ease;
 }
 
-/* Hover: Inversión de Colores (Negro a Blanco) y Mayor Brillo */
+/* Hover: Inversión Total Pura (Blanco y Negro) */
 .btn-galaxy:hover .btn-galaxy-inner {
+  background: #ffffff !important;
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.5);
+}
+
+.btn-galaxy:hover::after {
+  animation: none;
   background: #ffffff;
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.4);
+  filter: blur(5px) brightness(1.8);
+  transform: scale(1.05);
 }
 
 .btn-galaxy-inner {
@@ -617,25 +621,18 @@ body.tauri-app aside.fixed {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Texto e Icono: Inversión y Resplandor Potente */
+/* Texto e Icono: Inversión Blanca a Negra */
 .text-rainbow-hover {
   transition: all 0.4s ease;
-  color: inherit;
+  color: #ffffff;
 }
 
 .btn-galaxy:hover .text-rainbow-hover {
   color: #000000 !important;
-  background: none;
-  -webkit-text-fill-color: initial;
-  filter: drop-shadow(0 0 8px rgba(0,0,0,0.4)) brightness(1.2);
+  background: none !important;
+  -webkit-text-fill-color: initial !important;
+  filter: drop-shadow(0 0 5px rgba(255,255,255,0.8));
   font-weight: 900;
-}
-
-.btn-galaxy:hover::after {
-  animation: none;
-  background: #ffffff;
-  filter: blur(4px) brightness(1.5);
-  transform: scale(1.03);
 }
 
 @keyframes galaxy-move {
