@@ -32,3 +32,21 @@ dist/
 build/
 pos-local/installer/linux-market-pos/
 
+# Database and secrets
+*.db
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+linuxmarket.db*
+
+# Installers and packages
+*.deb
+*.rpm
+*.tar.gz
+public/downloads/
+
+# Editor specific
+*.bak
+*.swp
+.idea/
+.vscode/
