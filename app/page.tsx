@@ -18,7 +18,8 @@ import {
   Download,
   MessageCircle,
   X,
-  ArrowRight
+  ArrowRight,
+  Github
 } from 'lucide-react'
 import Link from 'next/link'
 import { AIAdvisor } from '@/components/ai-advisor'
@@ -183,13 +184,14 @@ export default function PublicityLandingPage() {
               <span className="text-[10px] font-mono text-violet-300 tracking-widest">100% ONLINE</span>
             </div>
 
-            {/* Download Button (Desktop) */}
+            {/* GitHub Code Button (Desktop) */}
             <div className="hidden lg:flex items-center gap-3">
-              <Link href="/store/login">
-                <Button variant="ghost" className="text-xs font-black px-6 py-3 text-violet-400 hover:text-white hover:bg-violet-500/10 transition-all uppercase">
-                  VER PROYECTO
+              <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" className="text-xs font-black px-6 py-3 text-white/60 hover:text-white hover:bg-white/5 border border-white/10 rounded-full transition-all uppercase flex items-center gap-2">
+                  <Github className="w-4 h-4" />
+                  VER CÓDIGO
                 </Button>
-              </Link>
+              </a>
               <a href="#descargas">
                 <Button className="btn-pill bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black px-6 py-3 shadow-lg shadow-violet-500/30 border border-violet-400/30 transition-all hover:scale-105">
                   DESCARGAR
@@ -325,11 +327,12 @@ export default function PublicityLandingPage() {
                     DESPLIEGUE GRATUITO
                   </Button>
                 </a>
-                <Link href="/store/login">
-                  <Button variant="outline" className="btn-pill border-violet-500/30 bg-violet-500/5 text-violet-300 font-black text-base h-15 px-10 hover:bg-violet-500/10 hover:border-violet-500/50 uppercase tracking-widest transition-all hover:scale-105 active:scale-95 backdrop-blur-sm">
-                    VER PROYECTO
+                <a href="https://github.com/Alexglv2000/linux-market" target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" className="btn-pill border-white/20 bg-white/5 text-white font-black text-base h-15 px-10 hover:bg-white/10 hover:border-white/40 uppercase tracking-widest transition-all hover:scale-105 active:scale-95 backdrop-blur-sm flex items-center gap-3">
+                    <Github className="w-6 h-6" />
+                    VER CÓDIGO
                   </Button>
-                </Link>
+                </a>
               </div>
 
               <div className="flex flex-wrap gap-8 pt-4 border-t border-white/5">
