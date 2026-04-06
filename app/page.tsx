@@ -58,6 +58,8 @@ export default function PublicityLandingPage() {
     stars: 0,
     forks: 0,
     watchers: 0,
+    version: '1.2.3',
+    lastUpdate: 'Cargando...',
     downloads: { deb: 0, rpm: 0, tar: 0 }
   })
   const router = useRouter() // Next.js router instance
@@ -78,20 +80,22 @@ export default function PublicityLandingPage() {
         
         // Analyze the latest release assets to calculate specific counts
         if (releasesData && releasesData.length > 0) {
-          releasesData[0].assets.forEach((asset: any) => {
+          const latestRelease = releasesData[0]
+          latestRelease.assets.forEach((asset: any) => {
             if (asset.name.endsWith('.deb')) debCount += asset.download_count
             if (asset.name.endsWith('.rpm')) rpmCount += asset.download_count
             if (asset.name.endsWith('.tar.gz')) tarCount += asset.download_count
           })
-        }
 
-        // Update local state with real data from GitHub
-        setGhStats({
-          stars: repoData.stargazers_count || 0,
-          forks: repoData.forks_count || 0,
-          watchers: repoData.subscribers_count || 0,
-          downloads: { deb: debCount, rpm: rpmCount, tar: tarCount }
-        })
+          setGhStats({
+            stars: repoData.stargazers_count || 0,
+            forks: repoData.forks_count || 0,
+            watchers: repoData.subscribers_count || 0,
+            version: latestRelease.tag_name || '1.2.3',
+            lastUpdate: new Date(latestRelease.published_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }),
+            downloads: { deb: debCount, rpm: rpmCount, tar: tarCount }
+          })
+        }
       } catch (err) {
         console.error('Error fetching GitHub stats:', err)
       }
@@ -140,60 +144,68 @@ export default function PublicityLandingPage() {
   // Core system features data array
   const features = [
     {
-      title: 'Hardware Lock',
-      desc: 'Licencia atada al silicio vía MAC Address. Sin nube, sin intermediarios.',
-      icon: ShieldCheck,
-      color: 'text-red-500',
-      badge: 'NÚCLEO'
+      title: 'Multidivisa Global',
+      desc: 'Soporte dinámico para MXN, USD, EUR y más. Configuración regional instantánea desde la consola.',
+      icon: Globe,
+      color: 'text-violet-400',
+      badge: 'PRO',
+      badgeColor: 'bg-violet-600'
     },
     {
-      title: 'Sincronización SSE',
-      desc: 'Inventario y ventas en tiempo real vía Server-Sent Events entre todas las sucursales.',
+      title: 'Periféricos Pro',
+      desc: 'Integración nativa con impresoras ESC/POS y escáneres láser con filtro anti-errores humanos.',
       icon: Zap,
       color: 'text-yellow-400',
-      badge: 'RED'
+      badge: 'HARDWARE',
+      badgeColor: 'bg-yellow-600'
+    },
+    {
+      title: 'Kiosko Inteligente',
+      desc: 'Modo auto-pago con cierre de sesión automático por inactividad y precisión financiera absoluta.',
+      icon: Activity,
+      color: 'text-emerald-400',
+      badge: 'KIOSKO',
+      badgeColor: 'bg-emerald-600'
     },
     {
       title: 'Cifrado AES-256',
       desc: 'Base de datos local cifrada a nivel militar. Tus datos son solo tuyos.',
       icon: Lock,
       color: 'text-blue-400',
-      badge: 'SEGURIDAD'
-    },
-    {
-      title: 'IPC Nativo',
-      desc: 'Comunicación directa entre procesos optimizada para el kernel de Linux sin overhead.',
-      icon: Terminal,
-      color: 'text-indigo-400',
-      badge: 'KERNEL'
+      badge: 'SEGURIDAD',
+      badgeColor: 'bg-blue-600'
     },
     {
       title: 'Motor Rust',
       desc: 'Back-end compilado a binario nativo para máximo rendimiento con mínimo consumo.',
       icon: Cpu,
       color: 'text-orange-500',
-      badge: 'PERFORMANCE'
+      badge: 'PERFORMANCE',
+      badgeColor: 'bg-orange-600'
     },
     {
-      title: 'Offline First',
-      desc: 'El sistema opera sin internet. La sincronización ocurre cuando la red vuelve.',
-      icon: Globe,
-      color: 'text-emerald-400',
-      badge: 'RESILIENCIA'
+      title: 'Sincronización SSE',
+      desc: 'Inventario y ventas en tiempo real vía Server-Sent Events entre todas las sucursales.',
+      icon: Zap,
+      color: 'text-yellow-400',
+      badge: 'RED',
+      badgeColor: 'bg-amber-600'
     },
     {
       title: 'SQLite Avanzado',
       desc: 'Consultas de baja latencia con índices optimizados para operaciones de alto volumen.',
       icon: Database,
       color: 'text-cyan-400',
-      badge: 'DATOS'
+      badge: 'DATOS',
+      badgeColor: 'bg-cyan-600'
     },
     {
       title: 'Control ACL',
       desc: 'Roles y permisos por capacidades específicas. RBAC real para tu equipo de trabajo.',
       icon: Users,
       color: 'text-pink-400',
-      badge: 'ACCESO'
+      badge: 'ACCESO',
+      badgeColor: 'bg-pink-600'
     }
   ]
 
@@ -392,7 +404,7 @@ export default function PublicityLandingPage() {
         <div className="mt-auto">
           <div className="p-6 rounded-3xl bg-white/5 border border-white/5">
             <p className="text-[10px] font-black tracking-widest text-white/30 uppercase mb-2">Build Info</p>
-            <p className="text-xs font-mono text-violet-400/60">v1.2.0 STABLE - LINUX MARKET</p>
+            <p className="text-xs font-mono text-violet-400/60">v1.2.3 STABLE - LINUX MARKET</p>
           </div>
         </div>
       </div>
@@ -415,7 +427,7 @@ export default function PublicityLandingPage() {
               </h1>
 
               <p className="text-xl md:text-2xl text-white/50 font-medium leading-relaxed">
-                Software POS nativo para Linux con cifrado de grado militar, sincronización en tiempo real y gestión multi-sucursal.
+                POS free para Linux diseñado como un grano de arena para la comunidad. Nativo, cifrado y con sincronización multi-sucursal.
                 <span className="text-violet-400 font-bold ml-2 text-balance">Despliegue Profesional.</span>
               </p>
 
@@ -435,20 +447,31 @@ export default function PublicityLandingPage() {
 
               <div className="flex flex-wrap gap-8 pt-4 border-t border-white/5">
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Cifrado</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">Cifrado</p>
                   <p className="text-base font-black font-mono text-blue-400">AES-256</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Motor</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">Motor</p>
                   <p className="text-base font-black font-mono text-blue-400">Rust / Tauri</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">BD</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">BD</p>
                   <p className="text-base font-black font-mono text-blue-400">SQLite Local</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-red-500/80">Sync</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">Sync</p>
                   <p className="text-base font-black font-mono text-blue-400">SSE Real-time</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6 text-[10px] font-bold tracking-widest text-white/30 uppercase pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                  VERSIÓN: <span className="text-violet-400">{ghStats.version}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  ACTUALIZADO: <span className="text-blue-400">{ghStats.lastUpdate}</span>
                 </div>
               </div>
             </div>
@@ -543,7 +566,7 @@ export default function PublicityLandingPage() {
                     <div className={`absolute inset-0 opacity-20 group-hover:opacity-40 transition-opacity ${f.color.replace('text-', 'bg-')}`} />
                     <f.icon className={`w-7 h-7 relative z-10 ${f.color} drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]`} />
                   </div>
-                  <span className={`text-[9px] font-black tracking-widest uppercase rounded-full px-3 py-1 ${f.color.replace('text-', 'bg-')} text-white shadow-[0_0_20px_rgba(59,130,246,0.3)] drop-shadow-[0_0_4px_rgba(59,130,246,0.8)]`}>
+                  <span className={`text-[9px] font-black tracking-widest uppercase rounded-full px-3 py-1 ${f.badgeColor} text-white shadow-[0_0_20px_rgba(59,130,246,0.3)] drop-shadow-[0_0_4px_rgba(59,130,246,0.8)]`}>
                     {f.badge}
                   </span>
                 </div>
@@ -575,7 +598,7 @@ export default function PublicityLandingPage() {
                     <div className={`absolute inset-0 opacity-20 group-hover:opacity-40 transition-opacity ${f.color.replace('text-', 'bg-')}`} />
                     <f.icon className={`w-7 h-7 relative z-10 ${f.color} drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]`} />
                   </div>
-                  <span className={`text-[9px] font-black tracking-widest uppercase rounded-full px-3 py-1 ${f.color.replace('text-', 'bg-')} text-white shadow-[0_0_20px_rgba(59,130,246,0.3)] drop-shadow-[0_0_4px_rgba(59,130,246,0.8)]`}>
+                  <span className={`text-[9px] font-black tracking-widest uppercase rounded-full px-3 py-1 ${f.badgeColor} text-white shadow-[0_0_20px_rgba(59,130,246,0.3)] drop-shadow-[0_0_4px_rgba(59,130,246,0.8)]`}>
                     {f.badge}
                   </span>
                 </div>

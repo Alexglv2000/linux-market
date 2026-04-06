@@ -49,7 +49,13 @@ async function run() {
     path: '/repos/' + repo + '/releases',
     method: 'POST',
     headers: { 'Authorization': 'token ' + token, 'User-Agent': 'NodeJS', 'Content-Type': 'application/json' }
-  }, JSON.stringify({ tag_name: tag, name: 'v1.2.3 STABLE', body: 'Linux Market POS Professional Release' }));
+  }, JSON.stringify({ 
+    tag_name: tag, 
+    name: 'v1.2.3 STABLE - by Alexis Gabriel Lugo Villeda', 
+    body: '## 🚀 Novedades en Linux Market POS v1.2.3\n\nEste lanzamiento marca la estabilidad total del sistema con las siguientes funciones:\n\n*   **🌍 Sistema Multimoneda**: Soporte dinámico para MXN, USD, EUR y más con locales configurables.\n*   **🖨️ Periféricos Industriales**: Integración nativa con impresoras térmicas ESC/POS y cajón de efectivo.\n*   **🛡️ Filtro Anti-Humanos**: Optimización del escáner láser para evitar entradas manuales erróneas.\n*   **🦾 Kiosko Inteligente**: Implementación de auto-reset por inactividad (90s) y cálculos financieros de alta precisión.\n*   **🔐 Seguridad Pro**: Cifrado AES-256 local y bloqueo de hardware vía MAC-Whitelisting.\n*   **📦 AppStream Support**: Ahora las capturas de pantalla y la descripción aparecen en las tiendas de software de Linux.\n\nRegalo de Alexis Gabriel Lugo Villeda para la comunidad del software libre.',
+    draft: false,
+    prerelease: false
+  }));
 
   if (release.status !== 201) {
      console.error('Error creando release:', release.data);
@@ -65,14 +71,18 @@ async function run() {
   });
 
   const uploadUrl = latest.data.upload_url;
-  console.log('Subiendo archivos...');
-  await uploadFile(uploadUrl, 'linux-market.deb', 'linux-market.deb');
-  console.log('DEB subido.');
-  await uploadFile(uploadUrl, 'linux-market.rpm', 'linux-market.rpm');
-  console.log('RPM subido.');
-  await uploadFile(uploadUrl, 'linux-market.tar.gz', 'linux-market.tar.gz');
-  console.log('TAR.GZ subido.');
-  console.log('¡Todo listo!');
+  console.log('📦 Preparando subida de activos...');
+  
+  await uploadFile(uploadUrl, './public/downloads/debian/linux-market.deb', 'linux-market.deb');
+  console.log('✅ DEB (Debian/Ubuntu) subido con éxito.');
+  
+  await uploadFile(uploadUrl, './public/downloads/fedora/linux-market.rpm', 'linux-market.rpm');
+  console.log('✅ RPM (Fedora/RHEL) subido con éxito.');
+  
+  await uploadFile(uploadUrl, './public/downloads/arch/linux-market.tar.gz', 'linux-market.tar.gz');
+  console.log('✅ TAR.GZ (Portable/Arch) subido con éxito.');
+  
+  console.log('✨ ¡Lanzamiento oficial v1.2.3 completado!');
 }
 
 run();
