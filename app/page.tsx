@@ -530,6 +530,31 @@ export default function PublicityLandingPage() {
                       className="w-full max-w-2xl h-auto object-contain animate-float"
                     />
                   </div>
+                  
+                  {/* Master Freshness Panel (Below Mascot) */}
+                  <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-full max-w-md z-30 animate-in fade-in slide-in-from-bottom-10 duration-1000">
+                    <div className={`glass-card p-5 rounded-3xl border-2 transition-all duration-700 shadow-[0_0_50px_rgba(239,68,68,0.3)] flex flex-col items-center gap-3 ${ghStats.isNew ? 'border-red-500/50 bg-red-500/5' : 'border-violet-500/30 bg-violet-500/5'}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-3 h-3 rounded-full ${ghStats.isNew ? 'bg-red-500 animate-ping' : 'bg-violet-500 animate-pulse'}`} />
+                        <span className={`text-sm font-black tracking-[0.3em] uppercase ${ghStats.isNew ? 'text-red-500' : 'text-violet-400'}`}>
+                          {ghStats.isNew ? '¡SOFTWARE RECIÉN ACTUALIZADO!' : 'SISTEMA ESTABLE Y ACTIVO'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-8 border-t border-white/10 pt-3 w-full justify-center">
+                        <div className="text-center">
+                          <p className="text-[10px] text-white/30 font-black uppercase tracking-widest mb-1">Versión</p>
+                          <p className="text-xl font-black text-white">{ghStats.version}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-white/30 font-black uppercase tracking-widest mb-1">Última Build</p>
+                          <p className={`text-xl font-black ${ghStats.isNew ? 'text-red-500' : 'text-blue-400'}`}>
+                            {ghStats.isNew ? ghStats.timeAgo : ghStats.lastUpdate}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="absolute top-16 left-0 glass-card rounded-2xl px-5 py-2 text-[10px] font-black tracking-widest text-blue-300 uppercase border border-blue-500/20 animate-bounce-soft z-20">
                     🔒 AES-256 SECURITY
                   </div>
@@ -808,7 +833,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                  <p className={`mt-3 text-xs text-center font-black uppercase tracking-widest transition-all duration-500 ${ghStats.isNew ? 'text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.4)]' : 'text-zinc-500'}`}>
                     v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
                   </p>
                 </div>
@@ -845,7 +870,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                  <p className={`mt-3 text-xs text-center font-black uppercase tracking-widest transition-all duration-500 ${ghStats.isNew ? 'text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.4)]' : 'text-zinc-500'}`}>
                     v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
                   </p>
                 </div>
@@ -882,7 +907,7 @@ export default function PublicityLandingPage() {
                       DESCARGAR
                     </Button>
                   </Link>
-                  <p className={`mt-2 text-[9px] text-center font-mono uppercase tracking-widest transition-colors duration-500 ${ghStats.isNew ? 'text-red-500 font-black animate-pulse' : 'text-zinc-500'}`}>
+                  <p className={`mt-3 text-xs text-center font-black uppercase tracking-widest transition-all duration-500 ${ghStats.isNew ? 'text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.4)]' : 'text-zinc-500'}`}>
                     v1.2.3 • {ghStats.isNew ? `¡RECIÉN SUBIDO! HACE ${ghStats.timeAgo}` : '6 ABR 2026'}
                   </p>
                 </div>
