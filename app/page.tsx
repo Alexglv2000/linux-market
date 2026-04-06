@@ -60,25 +60,49 @@ export default function PublicityLandingPage() {
     watchers: 0,
     version: '1.2.3',
     lastUpdate: 'Cargando...',
+    publishedAt: null as Date | null,
+    timeAgo: '',
+    isNew: false,
     downloads: { deb: 0, rpm: 0, tar: 0 }
   })
   const router = useRouter() // Next.js router instance
+
+  // Effect for relative time counter (Dynamic ticker)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!ghStats.publishedAt) return
+
+      const now = new Date()
+      const diff = now.getTime() - ghStats.publishedAt.getTime()
+      
+      const seconds = Math.floor((diff / 1000) % 60)
+      const minutes = Math.floor((diff / (1000 * 60)) % 60)
+      const hours = Math.floor((diff / (1000 * 60 * 60)) % 24)
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+      let statusStr = ""
+      if (days > 0) statusStr += `${days}d `
+      statusStr += `${hours}h ${minutes}m ${seconds}s`
+      
+      setGhStats(prev => ({ 
+        ...prev, 
+        timeAgo: statusStr,
+        isNew: diff < 7 * 24 * 60 * 60 * 1000 // Menos de 1 semana
+      }))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [ghStats.publishedAt])
 
   // Effect to fetch GitHub repository real-time statistics
   useEffect(() => {
     async function fetchStats() {
       try {
-        // Fetch main repo data (stars, forks)
         const repoRes = await fetch('https://api.github.com/repos/Alexglv2000/linux-market')
         const repoData = await repoRes.json()
-        
-        // Fetch releases data for download counts
         const releasesRes = await fetch('https://api.github.com/repos/Alexglv2000/linux-market/releases')
         const releasesData = await releasesRes.json()
         
         let debCount = 0, rpmCount = 0, tarCount = 0
-        
-        // Analyze the latest release assets to calculate specific counts
         if (releasesData && releasesData.length > 0) {
           const latestRelease = releasesData[0]
           latestRelease.assets.forEach((asset: any) => {
@@ -87,21 +111,24 @@ export default function PublicityLandingPage() {
             if (asset.name.endsWith('.tar.gz')) tarCount += asset.download_count
           })
 
-          setGhStats({
+          const pubDate = new Date(latestRelease.published_at)
+          setGhStats(prev => ({
+            ...prev,
             stars: repoData.stargazers_count || 0,
             forks: repoData.forks_count || 0,
             watchers: repoData.subscribers_count || 0,
             version: latestRelease.tag_name || '1.2.3',
-            lastUpdate: new Date(latestRelease.published_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }),
+            publishedAt: pubDate,
+            lastUpdate: pubDate.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }),
             downloads: { deb: debCount, rpm: rpmCount, tar: tarCount }
-          })
+          }))
         }
       } catch (err) {
         console.error('Error fetching GitHub stats:', err)
       }
     }
     fetchStats()
-  }, []) // Run once on client mount
+  }, [])
 
   // Effect to detect the Tauri environment on mount
   useEffect(() => {
@@ -464,15 +491,21 @@ export default function PublicityLandingPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-6 text-[10px] font-bold tracking-widest text-white/30 uppercase pt-2">
+              <div className="flex flex-wrap items-center gap-6 text-[10px] font-bold tracking-widest uppercase pt-2">
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
                   VERSIÓN: <span className="text-violet-400">{ghStats.version}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                  ACTUALIZADO: <span className="text-blue-400">6 ABR 2026</span>
+                <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all duration-500 ${ghStats.isNew ? 'bg-red-500/10 border-red-500/30 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${ghStats.isNew ? 'bg-red-500 animate-ping' : 'bg-blue-500 animate-pulse'}`} />
+                  {ghStats.isNew ? '¡NUEVO! ' : 'ACTUALIZADO: '}
+                  {ghStats.publishedAt ? `hace ${ghStats.timeAgo}` : 'Cargando...'}
                 </div>
+                {ghStats.isNew && (
+                  <div className="text-red-500 font-black animate-pulse tracking-tighter">
+                    ¡SOFTWARE COMPLETAMENTE NUEVO! 🔥
+                  </div>
+                )}
               </div>
             </div>
 
