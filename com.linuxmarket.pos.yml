@@ -28,7 +28,7 @@ modules:
         branch: main
 
 metadata:
-  name: Linux-Market
+  name: Linux-Market POS
   developer: Alexis Gabriel Lugo Villeda
   license: MIT
   website: https://linux-market.vercel.app/

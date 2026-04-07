@@ -25,11 +25,17 @@ parts:
       - libayatana-appindicator3-dev
       - librsvg2-dev
       - libssl-dev
+      - nodejs
+    override-build: |
+      npm install
+      npm run build
+      craftctl default
     stage-packages:
       - libgtk-3-0
       - libwebkit2gtk-4.0-37
       - libayatana-appindicator3-1
       - librsvg2-2
+      - libssl3
     # build commands are usually handled by the plugin, but we might need 
     # extra steps for Tauri if the plugin doesn't know about the frontend build.
 
